@@ -1,0 +1,20 @@
+{
+  "name": "elizabeth-starter",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "elizabeth dev",
+    "build": "elizabeth build",
+    "start": "bun dist/server.js",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "elizabeth": "file:/home/shinapri/Documents/proj/elizabeth"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "tailwindcss": "^4.2.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.10"
+  }
+}

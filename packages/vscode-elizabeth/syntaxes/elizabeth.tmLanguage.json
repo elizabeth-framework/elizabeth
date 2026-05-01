@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Elizabeth",
+  "scopeName": "source.elizabeth",
+  "patterns": [
+    {
+      "match": "(?<!\\w)@(public|default|declare|private|client)\\b",
+      "name": "keyword.control.elizabeth"
+    },
+    {
+      "include": "source.tsx"
+    }
+  ]
+}

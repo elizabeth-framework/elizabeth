@@ -1,0 +1,15 @@
+{
+  "scopeName": "elizabeth.injections.logic",
+  "injectionSelector": "L:meta.jsx.children.tsx",
+  "patterns": [
+    {
+      "begin": "^\\s*(?=const\\b|let\\b|var\\b|import\\b|export\\b|function\\b|class\\b|if\\b|for\\b|while\\b|try\\b|catch\\b)",
+      "end": "(?=<)",
+      "patterns": [
+        {
+          "include": "source.tsx"
+        }
+      ]
+    }
+  ]
+}

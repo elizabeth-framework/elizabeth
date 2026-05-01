@@ -1,0 +1,12 @@
+{
+  "name": "create-elizabeth-app",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "create-elizabeth": "./src/index.ts",
+    "create-elizabeth-app": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ]
+}

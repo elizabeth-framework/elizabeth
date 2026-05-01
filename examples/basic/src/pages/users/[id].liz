@@ -1,0 +1,22 @@
+import { notFound } from "elizabeth/route"
+import { Card } from "../../components/Card.liz"
+
+@default
+<UserPage>
+  const userId = ctx.params.id;
+  const user = await Promise.resolve(userId === "ada" ? {
+    id: userId,
+    name: "Ada Lovelace",
+  } : null);
+
+  if (!user) {
+    return notFound();
+  }
+
+  <main className="shell">
+    <h1>User {user.name}</h1>
+    <Card title="Dynamic route" description="Route params come from ctx.params">
+      <p>Loaded user id: {user.id}</p>
+    </Card>
+  </main>
+</UserPage>

@@ -1,0 +1,36 @@
+{
+  "name": "elizabeth",
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "bin": {
+    "elizabeth": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/elizabeth.ts",
+    "./client": "./src/client.ts",
+    "./route": "./src/route.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun run src/dev/tests.ts",
+    "smoke": "bun run src/dev/smoke.ts",
+    "dev": "bun run src/dev/server.ts",
+    "build": "bun run src/cli.ts build"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "tailwindcss": "^4.2.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.10"
+  },
+  "dependencies": {
+    "oxc-parser": "^0.128.0"
+  }
+}

@@ -1,0 +1,211 @@
+import { Counter } from "../components/Counter.liz"
+
+const test = () => ""
+
+@default
+<HomePage>
+  
+  const items = [
+    {id: 0, icon: "", text: "Get Started"},
+    {id: 1, icon: "📖", text: "Documentation"},
+    {id: 2, icon: "🐙", text: "GitHub"}
+  ]
+
+
+  <style>
+    .hero-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      max-width: 54rem;
+      width: 100%;
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(1rem); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 2rem;
+      width: 100%;
+      padding: 3rem 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      backdrop-filter: blur(20px);
+      box-shadow: 
+        0 20px 50px -10px rgba(0, 0, 0, 0.5),
+        inset 0 1px 1px rgba(255, 255, 255, 0.1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.05),
+        transparent
+      );
+      transition: 0.5s;
+    }
+
+    .card:hover::before {
+      left: 100%;
+    }
+
+    .title-group {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .title {
+      font-size: 3.5rem;
+      font-weight: 800;
+      margin: 0;
+      background: linear-gradient(135deg, #fff 0%, #93c5fd 50%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      font-size: 1.25rem;
+      color: #94a3b8;
+      margin: 0;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .instruction {
+      font-size: 0.95rem;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .instruction code {
+      color: #c084fc;
+      background: rgba(192, 132, 252, 0.1);
+      padding: 0.3rem 0.6rem;
+      border-radius: 0.4rem;
+      border: 1px solid rgba(192, 132, 252, 0.2);
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+    }
+
+    .links {
+      display: flex;
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .link-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.75rem;
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .link-btn:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+    }
+
+    .link-btn-primary {
+      background: #ffffff;
+      color: #030712;
+      border: none;
+    }
+
+    .link-btn-primary:hover {
+      background: #f8fafc;
+      transform: translateY(-2px);
+    }
+
+    .footer-text {
+      color: #475569;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .dot {
+      width: 0.5rem;
+      height: 0.5rem;
+      background: #22c55e;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #22c55e;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    .icon {
+      font-size: 1.25rem;
+    }
+  </style>
+
+  <div className="hero-container">
+    <div className="card">
+      <div className="title-group">
+        <h1 className="title">Elizabeth</h1>
+        <h2 className="subtitle">The reactive web framework for the future.</h2>
+      </div>
+
+      <p className="instruction">
+        Start building by editing <code>src/pages/index.liz</code>
+      </p>
+
+      <Counter />
+
+      <div className="links">
+
+        {for (const item of items) {
+          <a href="#" className={item.id === 0 ? "link-btn link-btn-primary" : "link-btn"}>
+            <span className="icon">{item.icon}</span>
+            {item.text}
+          </a>
+        }}
+      </div>
+    </div>
+
+    <p className="footer-text">
+      <span className="dot"></span>
+      Hot reload active. Save changes to see them instantly.
+    </p>
+  </div>
+</HomePage>

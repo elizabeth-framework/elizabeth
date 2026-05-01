@@ -1,0 +1,8 @@
+@default
+<NotFoundPage>
+  <main className="shell">
+    <h1>Page not found</h1>
+    <p>The route does not exist yet.</p>
+    <a href="/">Return home</a>
+  </main>
+</NotFoundPage>

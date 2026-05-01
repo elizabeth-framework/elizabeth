@@ -1,0 +1,52 @@
+{
+  "name": "vscode-elizabeth",
+  "displayName": "Elizabeth",
+  "description": "Language support for Elizabeth framework.",
+  "version": "0.0.2",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./out/vscode-elizabeth/src/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "elizabeth",
+        "extensions": [".liz"],
+        "aliases": ["Elizabeth", "liz"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "elizabeth",
+        "scopeName": "source.elizabeth",
+        "path": "./syntaxes/elizabeth.tmLanguage.json"
+      },
+      {
+        "scopeName": "elizabeth.injections.decorators",
+        "path": "./syntaxes/elizabeth-decorators.tmLanguage.json",
+        "injectTo": ["source.elizabeth"]
+      },
+      {
+        "scopeName": "elizabeth.injections.logic",
+        "path": "./syntaxes/elizabeth-logic.tmLanguage.json",
+        "injectTo": ["source.elizabeth"]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsup ./src/extension.ts ../language-server/src/index.ts --format cjs --external vscode --out-dir ./out --clean",
+    "watch": "tsup ./src/extension.ts ../language-server/src/index.ts --format cjs --external vscode --out-dir ./out --watch"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.28.0",
+    "tsup": "^8.5.1"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "extensionDependencies": [
+    "vscode.typescript-language-features"
+  ]
+}

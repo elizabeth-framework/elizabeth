@@ -1,0 +1,18 @@
+.hero {
+  border: 1px solid #d7c7a0;
+  background: #fffaf0;
+  padding: 1.25rem;
+}
+
+.note {
+  composes: tone;
+  color: #7a3d25;
+}
+
+.tone {
+  font-weight: 700;
+}
+
+:global(.nav) {
+  border-bottom: 1px solid #d7c7a0;
+}

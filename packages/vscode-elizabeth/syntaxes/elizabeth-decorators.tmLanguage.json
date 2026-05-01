@@ -1,0 +1,10 @@
+{
+  "scopeName": "elizabeth.injections.decorators",
+  "injectionSelector": "L:source.elizabeth",
+  "patterns": [
+    {
+      "match": "(?<!\\w)@(public|default|declare|private|client)\\b",
+      "name": "keyword.control.elizabeth"
+    }
+  ]
+}

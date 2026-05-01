@@ -1,0 +1,9 @@
+@default
+<ErrorPage>
+  await Promise.resolve();
+  throw new Error("Intentional Elizabeth smoke error");
+
+  <main>
+    <h1>This should not render</h1>
+  </main>
+</ErrorPage>

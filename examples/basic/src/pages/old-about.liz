@@ -1,0 +1,10 @@
+import { redirect } from "elizabeth/route"
+
+@default
+<OldAboutPage>
+  return redirect("/about");
+
+  <main>
+    <h1>Moved</h1>
+  </main>
+</OldAboutPage>
