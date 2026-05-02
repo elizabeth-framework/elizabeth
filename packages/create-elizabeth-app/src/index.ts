@@ -24,6 +24,7 @@ async function createApp(options: CreateOptions): Promise<void> {
   console.log("");
   console.log("Installing dependencies...");
   
+  // @ts-ignore - Bun types in CI might be outdated and missing spawn
   const proc = Bun.spawn(["bun", "install"], {
     cwd: target,
     stdout: "inherit",

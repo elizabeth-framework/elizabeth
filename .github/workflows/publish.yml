@@ -1,0 +1,49 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  publish:
+    name: Publish Packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Needed for provenance if you want to enable it later
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Node (for npm)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: bun install
+
+      # Check typescript before publishing
+      - name: Typecheck
+        run: bun run check
+
+      # Publish root package (@lizorigin/elizabeth)
+      - name: Publish Core Framework
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Publish create-elizabeth-app
+      - name: Publish Create App Template
+        run: npm publish --access public
+        working-directory: ./packages/create-elizabeth-app
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
