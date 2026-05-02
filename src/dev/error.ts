@@ -254,28 +254,86 @@ function sourceForGeneratedFrame(file: string, line: number, column: number): { 
     return null;
   }
 
+  const mapped = mapGeneratedLineToLizSource(file, sourceFile, line, column);
+
   return {
     file: sourceFile,
     displayFile: compactPath(sourceFile),
-    line: mapGeneratedLineToLizSource(file, sourceFile, line),
-    column,
+    line: mapped.line,
+    column: mapped.column,
   };
 }
 
-function mapGeneratedLineToLizSource(generatedFile: string, sourceFile: string, generatedLine: number): number {
+function mapGeneratedLineToLizSource(
+  generatedFile: string,
+  sourceFile: string,
+  generatedLine: number,
+  generatedColumn: number,
+): { line: number; column: number } {
   const generated = readLines(generatedFile);
   const source = readLines(sourceFile);
   const generatedText = generated[generatedLine - 1]?.trim();
 
   if (generatedText) {
+    const expressionLocation = mapGeneratedExpressionToLizSource(generatedText, source);
+
+    if (expressionLocation) {
+      return expressionLocation;
+    }
+
     const match = source.findIndex((line) => line.trim() === generatedText);
 
     if (match !== -1) {
-      return match + 1;
+      return { line: match + 1, column: 1 };
     }
   }
 
-  return Math.max(1, generatedLine - generatedPreambleLineCount(generated));
+  return {
+    line: Math.max(1, generatedLine - generatedPreambleLineCount(generated)),
+    column: generatedColumn,
+  };
+}
+
+function mapGeneratedExpressionToLizSource(
+  generatedText: string,
+  sourceLines: string[],
+): { line: number; column: number } | null {
+  const expression = generatedExpression(generatedText);
+
+  if (!expression) {
+    return null;
+  }
+
+  const needle = `{${expression}}`;
+
+  for (let index = 0; index < sourceLines.length; index++) {
+    const column = sourceLines[index].indexOf(needle);
+
+    if (column !== -1) {
+      return {
+        line: index + 1,
+        column: column + 1,
+      };
+    }
+  }
+
+  return null;
+}
+
+function generatedExpression(generatedText: string): string | null {
+  const htmlMatch = /^__html \+= escapeHtml\((.+)\);$/.exec(generatedText);
+
+  if (htmlMatch) {
+    return htmlMatch[1].trim();
+  }
+
+  const attrMatch = /^__html \+= escapeAttribute\((.+)\);$/.exec(generatedText);
+
+  if (attrMatch) {
+    return attrMatch[1].trim();
+  }
+
+  return null;
 }
 
 function generatedPreambleLineCount(lines: string[]): number {

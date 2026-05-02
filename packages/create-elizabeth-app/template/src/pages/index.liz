@@ -1,0 +1,66 @@
+import { Counter } from "../components/Counter.liz"
+
+@default
+<HomePage>
+
+  <style>
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .brand h1 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, #fff 20%, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand p {
+      font-size: 0.8rem;
+      color: #475569;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .hint {
+      font-size: 0.7rem;
+      color: #334155;
+      font-weight: 500;
+    }
+
+    .hint code {
+      color: #7c3aed;
+      background: rgba(124, 58, 237, 0.06);
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+      font-size: 0.65rem;
+    }
+  </style>
+
+  <div className="container">
+    <div className="brand">
+      <h1>Elizabeth</h1>
+      <p>The reactive web framework.</p>
+    </div>
+
+    <Counter />
+
+    <p className="hint">
+      Edit <code>src/pages/index.liz</code> to start
+    </p>
+  </div>
+</HomePage>

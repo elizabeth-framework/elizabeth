@@ -4,3 +4,9 @@
 **/.env
 
 **/*.vsix
+
+TODO.md
+
+dist/
+.elizabeth/
+.elizabeth-*/

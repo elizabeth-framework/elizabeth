@@ -8,5 +8,5 @@ startElizabethDevServer({
   frameworkRoot: root,
   pagesDir: resolve(root, "examples/basic/src/pages"),
   outDir: resolve(root, ".elizabeth"),
-  port: Number(Bun.env.PORT ?? 3000),
+  port: Number(Bun.env.PORT ?? 3712),
 });

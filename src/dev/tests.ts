@@ -2,9 +2,12 @@ import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { buildElizabethApp } from "../build/app.ts";
 import { compileElizabeth } from "../compiler/compile.ts";
+import { renderDevError } from "./error.ts";
 
 await testInlineStyleClassMangling();
 await testAttributeErrorLocation();
+await testMarkupExpressionErrorLocation();
+await testRuntimeErrorTraceExpressionMapping();
 await testStaticBuildClientAssets();
 await testViteGlobalCssBuild();
 
@@ -48,6 +51,59 @@ async function testAttributeErrorLocation(): Promise<void> {
   throw new Error("Expected backtick attribute error.");
 }
 
+async function testMarkupExpressionErrorLocation(): Promise<void> {
+  try {
+    compileElizabeth(`@default
+<TestPage>
+  <div>
+    {
+      if (true) {
+        <code>{#if}</code>
+      }
+    }
+  </div>
+</TestPage>`, "bad-expression.liz");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    assert(message.startsWith("bad-expression.liz:6:"), "nested markup expression error should point at the .liz source line");
+    assert(message.includes(`write \`{"#if"}\``), "hash text errors should include a JS string expression hint");
+    return;
+  }
+
+  throw new Error("Expected markup expression error.");
+}
+
+async function testRuntimeErrorTraceExpressionMapping(): Promise<void> {
+  const root = "/tmp/elizabeth-trace-map";
+  const generated = resolve(root, ".elizabeth/src/pages/index.liz.abc123.ts");
+  const source = resolve(root, "src/pages/index.liz");
+
+  await rm(root, { recursive: true, force: true });
+  await mkdir(resolve(root, ".elizabeth/src/pages"), { recursive: true });
+  await mkdir(resolve(root, "src/pages"), { recursive: true });
+  await writeFile(generated, `import { escapeHtml } from "elizabeth/runtime";
+
+export default async function HomePage() {
+  let __html = "";
+  __html += "<p>";
+  __html += escapeHtml(missingName);
+  __html += "</p>";
+  return __html;
+}
+`);
+  await writeFile(source, `@default
+<HomePage>
+  <p>{missingName}</p>
+</HomePage>
+`);
+
+  const error = new ReferenceError("missingName is not defined");
+  error.stack = `ReferenceError: missingName is not defined\n    at <anonymous> (${generated}:6:24)`;
+  const html = renderDevError(error, "/");
+
+  assert(html.includes("src/pages/index.liz:3:6"), "runtime trace should point generated escapeHtml expressions at the .liz expression");
+}
+
 async function testStaticBuildClientAssets(): Promise<void> {
   const root = "/tmp/elizabeth-focused-build";
   const frameworkRoot = resolve(".");
@@ -79,11 +135,18 @@ async function testStaticBuildClientAssets(): Promise<void> {
 
 @default
 <HomePage>
+  <main>
+    <Counter />
+  </main>
+</HomePage>
+`);
+  await writeFile(resolve(root, "src/pages/layout.liz"), `@default
+<RootLayout>
   <html>
     <head><title>Build</title></head>
-    <body><Counter /></body>
+    <body>{children}</body>
   </html>
-</HomePage>
+</RootLayout>
 `);
   await mkdir(resolve(root, "src/pages/users"), { recursive: true });
   await writeFile(resolve(root, "src/pages/users/[id].liz"), `@default
@@ -122,6 +185,8 @@ async function testStaticBuildClientAssets(): Promise<void> {
   const islandUrl = manifest.islands.find((island) => island.moduleId === "src/components/Counter.liz")?.url;
 
   assert((await readFile(resolve(root, "dist/server.js"), "utf8")).includes("Bun.serve"), "build should emit a production server");
+  assert(html.includes("data-elizabeth-boundary="), "build should emit automatic layout navigation boundaries");
+  assert(!html.includes("startViewTransition"), "build should not enable visual view transitions by default");
   assert(html.includes("/_elizabeth/client-manifest.json"), "build should inject island bootstrap");
   assert(islandUrl, "build should write a client manifest");
   assert(/\/_elizabeth\/islands\/.+-[A-Za-z0-9_-]+\.js$/.test(islandUrl), "island should be a hashed Vite bundle");

@@ -14,7 +14,7 @@ await createApp(options);
 
 async function createApp(options: CreateOptions): Promise<void> {
   const target = resolve(process.cwd(), options.targetDir);
-  const template = resolve(import.meta.dir, "../../create-elizabeth");
+  const template = resolve(import.meta.dir, "../template");
 
   await assertWritableTarget(target, options.force);
   await copyTemplate(template, target);
@@ -22,9 +22,26 @@ async function createApp(options: CreateOptions): Promise<void> {
 
   console.log(`Created Elizabeth app in ${target}`);
   console.log("");
+  console.log("Installing dependencies...");
+  
+  const proc = Bun.spawn(["bun", "install"], {
+    cwd: target,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    console.error(`\nFailed to install dependencies (exit code ${exitCode}).`);
+    console.log("Please run `bun install` manually.");
+  } else {
+    console.log("\nDependencies installed successfully.");
+  }
+
+  console.log("");
   console.log("Next:");
   console.log(`  cd ${options.targetDir}`);
-  console.log("  bun install");
   console.log("  bun run dev");
 }
 
@@ -70,9 +87,7 @@ async function writeGeneratedPackageJson(target: string, options: CreateOptions)
       elizabeth: options.elizabethSpecifier,
     },
     devDependencies: {
-      "@tailwindcss/vite": "^4.2.4",
-      "tailwindcss": "^4.2.4",
-      typescript: "^5.9.3",
+      typescript: "^6.0.3",
       vite: "^8.0.10",
     },
   }, null, 2)}\n`);
@@ -139,21 +154,15 @@ function packageNameFor(targetDir: string): string {
 }
 
 function defaultElizabethSpecifier(): string {
-  const packageRoot = resolve(import.meta.dir, "..");
-  const repoRoot = resolve(packageRoot, "../..");
-
-  if (dirname(packageRoot).endsWith("packages")) {
-    return `file:${repoRoot}`;
-  }
-
-  return "latest";
+  return "npm:@lizorigin/elizabeth@^0.0.1";
 }
 
 function printHelp(): void {
   console.log(`create-elizabeth-app
 
 Usage:
-  bun create elizabeth-app my-app
+  bun create @lizorigin/elizabeth-app my-app
+  bunx @lizorigin/create-elizabeth-app my-app
 
 Options:
   --elizabeth <specifier>  Override the elizabeth dependency specifier.

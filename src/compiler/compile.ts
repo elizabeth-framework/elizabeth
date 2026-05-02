@@ -468,12 +468,14 @@ interface EmitHtmlOptions {
   textBindings?: ClientTextBinding[];
   attrBindings?: ClientAttributeBinding[];
   stateNames?: Set<string>;
+  sourceOffset?: number;
 }
 
 function emitMarkupStatements(markup: string, target: string, options: EmitHtmlOptions = {}): string {
   const statements: string[] = [];
   let text = "";
   let index = 0;
+  const sourceOffset = options.sourceOffset ?? 0;
 
   while (index < markup.length) {
     const char = markup[index];
@@ -482,11 +484,25 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
       const end = findMatching(markup, index, "{", "}");
       const expression = markup.slice(index + 1, end).trim();
       flushText();
-      statements.push(
-        isExpressionScript(expression)
-          ? `${target} += ${emitInterpolatedExpressionWithOptions(expression, options)};`
-          : emitScriptBlockStatements(expression, target, options),
-      );
+      if (isExpressionScript(expression)) {
+        statements.push(`${target} += ${emitInterpolatedExpressionWithOptions(expression, options)};`);
+      } else {
+        try {
+          statements.push(emitScriptBlockStatements(expression, target, withSourceOffset(options, sourceOffset + index + 1)));
+        } catch (error) {
+          if (error instanceof MarkupSyntaxError) {
+            throw error;
+          }
+
+          const literalHint = expression.startsWith("#")
+            ? ` Elizabeth treats \`{...}\` as JavaScript in markup. To render this text, write \`{${JSON.stringify(expression)}}\`.`
+            : "";
+          throw new MarkupSyntaxError(
+            `Invalid markup expression or script block {${expression}}.${literalHint} ${error instanceof Error ? error.message : String(error)}`.trim(),
+            sourceOffset + index,
+          );
+        }
+      }
       index = end + 1;
       continue;
     }
@@ -590,7 +606,7 @@ function readJsBlockInMarkup(
     const bodyEnd = findMatching(source, brace, "{", "}");
     const body = source.slice(brace + 1, bodyEnd);
     pieces.push(`${header} {`);
-    pieces.push(indent(emitMarkupStatements(body, target, options), 2));
+    pieces.push(indent(emitMarkupStatements(body, target, withSourceOffset(options, (options.sourceOffset ?? 0) + brace + 1)), 2));
     pieces.push("}");
 
     const continuationStart = bodyEnd + 1;
@@ -637,7 +653,7 @@ function findJsBlockOpenInMarkup(source: string, start: number): number {
       continue;
     }
 
-    if (char === "<" || char === "\n") {
+    if ((char === "<" && isMarkupStart(source, index)) || char === "\n") {
       return -1;
     }
 
@@ -676,7 +692,7 @@ function emitScriptBlockStatements(source: string, target: string, options: Emit
 
     if (source[index] === "<") {
       const markupEnd = readMarkupRunEnd(source, index);
-      statements.push(emitMarkupStatements(source.slice(index, markupEnd), target, options));
+      statements.push(emitMarkupStatements(source.slice(index, markupEnd), target, withSourceOffset(options, (options.sourceOffset ?? 0) + index)));
       index = markupEnd;
       continue;
     }
@@ -697,7 +713,14 @@ function emitScriptBlockStatements(source: string, target: string, options: Emit
     const statement = source.slice(index, end).trim();
 
     if (statement.length > 0) {
-      validateScriptSyntax(statement, "markup script statement");
+      try {
+        validateScriptSyntax(statement, "markup script statement");
+      } catch (error) {
+        const message = statement.startsWith("#")
+          ? `Invalid markup expression {${statement}}. Elizabeth treats \`{...}\` as JavaScript in markup. To render this text, write \`{${JSON.stringify(statement)}}\`.`
+          : error instanceof Error ? error.message : String(error);
+        throw new MarkupSyntaxError(message, (options.sourceOffset ?? 0) + index);
+      }
       statements.push(statement.endsWith(";") ? statement : `${statement};`);
     }
 
@@ -790,7 +813,7 @@ function readScriptStatementEnd(source: string, start: number): number {
     else if (char === "}") braceDepth--;
     else if (char === ";" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
       return index + 1;
-    } else if (char === "<" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+    } else if (char === "<" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && isMarkupStart(source, index)) {
       return index;
     } else if (char === "\n" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
       const nextToken = skipWhitespace(source, index + 1);
@@ -808,6 +831,17 @@ function readScriptStatementEnd(source: string, start: number): number {
 
 function isJsBlockContinuation(header: string): boolean {
   return /^(?:else\b|catch\b|finally\b|while\b)/.test(header);
+}
+
+function withSourceOffset(options: EmitHtmlOptions, sourceOffset: number): EmitHtmlOptions {
+  return {
+    ...options,
+    sourceOffset,
+  };
+}
+
+function isMarkupStart(source: string, index: number): boolean {
+  return source.startsWith("<!--", index) || /^<\/?[A-Za-z][A-Za-z0-9_.-]*/.test(source.slice(index));
 }
 
 function validateScriptBlockHeader(header: string): void {
@@ -1336,7 +1370,7 @@ function readStyleBlocks(markup: string): StyleBlock[] {
   let index = 0;
 
   while (index < markup.length) {
-    if (markup[index] !== "<") {
+    if (markup[index] !== "<" || !isMarkupStart(markup, index)) {
       index++;
       continue;
     }

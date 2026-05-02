@@ -20,6 +20,13 @@ export interface ElizabethDevOptions {
   port?: number;
 }
 
+type DevRouteKind = "page" | "api" | "asset" | "error";
+
+interface DevRenderResult {
+  response: Response;
+  kind: DevRouteKind;
+}
+
 export function createElizabethDevHandler(options: ElizabethDevOptions): (request: Request) => Promise<Response> {
   const root = resolve(options.root);
   const frameworkRoot = resolve(options.frameworkRoot);
@@ -48,31 +55,53 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return hmr.handle(request);
     }
 
-    return render(url.pathname, request);
+    const startedAt = Date.now();
+    let result: DevRenderResult;
+
+    try {
+      result = await render(url.pathname, request);
+    } catch (error) {
+      result = {
+        response: devErrorResponse(error, url.pathname),
+        kind: "error",
+      };
+    }
+
+    if (shouldLogDevRequest(url.pathname, result.kind)) {
+      logDevRequest({
+        method: request.method.toUpperCase(),
+        pathname: url.pathname,
+        status: result.response.status,
+        durationMs: Date.now() - startedAt,
+        kind: result.kind,
+      });
+    }
+
+    return result.response;
   };
 
-  async function render(pathname: string, request: Request): Promise<Response> {
+  async function render(pathname: string, request: Request): Promise<DevRenderResult> {
     if (!existsSync(pagesDir)) {
-      return new Response(`Elizabeth pages directory not found: ${pagesDir}`, {
+      return devResult(new Response(`Elizabeth pages directory not found: ${pagesDir}`, {
         status: 500,
         headers: {
           "content-type": "text/plain; charset=utf-8",
         },
-      });
+      }), "error");
     }
 
     if (pathname === "/_elizabeth/client-manifest.json") {
-      return Response.json({
+      return devResult(Response.json({
         islands: (await getManifest()).clientComponents,
-      });
+      }), "asset");
     }
 
     if (pathname.startsWith("/_elizabeth/islands/")) {
-      return renderIslandModuleFromManifest(pathname, await getManifest());
+      return devResult(await renderIslandModuleFromManifest(pathname, await getManifest()), "asset");
     }
 
     if (pathname.startsWith("/_elizabeth/global/")) {
-      return renderViteTransformedModule(pathname);
+      return devResult(await renderViteTransformedModule(pathname), "asset");
     }
 
     let manifest: PageRouteManifest;
@@ -83,36 +112,36 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       apiRoutes = await getApiRoutes();
       assertNoRouteConflicts(manifest.routes.map((route) => ({ path: route.path, methods: ["GET", "HEAD"], sourcePath: route.sourcePath })), apiRoutes);
     } catch (error) {
-      return devErrorResponse(error, pathname);
+      return devResult(devErrorResponse(error, pathname), "error");
     }
 
     if (pathname.startsWith("/_elizabeth/css/")) {
-      return renderCssModule(pathname, manifest);
+      return devResult(await renderCssModule(pathname, manifest), "asset");
     }
 
     const method = request.method.toUpperCase();
     const apiMatch = matchApiRoute(apiRoutes, pathname);
     if (apiMatch && apiMatch.route.methods.includes(method)) {
-      return renderApiRoute(apiMatch, method, request);
+      return devResult(await renderApiRoute(apiMatch, method, request), "api");
     }
 
     if (apiMatch && !["GET", "HEAD"].includes(method)) {
-      return methodNotAllowedResponse(apiMatch.route.methods);
+      return devResult(methodNotAllowedResponse(apiMatch.route.methods), "api");
     }
 
     const match = matchPageRoute(manifest.routes, pathname);
 
     if (!match) {
       if (!manifest.notFound) {
-        return new Response("Not found", {
+        return devResult(new Response("Not found", {
           status: 404,
           headers: {
             "content-type": "text/plain; charset=utf-8",
           },
-        });
+        }), "page");
       }
 
-      return renderNotFound(manifest.notFound);
+      return devResult(await renderNotFound(manifest.notFound), "page");
     }
 
     let result: Awaited<ReturnType<typeof renderPageRoute>>;
@@ -120,21 +149,21 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     try {
       result = await renderPageRoute(match);
     } catch (error) {
-      return devErrorResponse(error, pathname);
+      return devResult(devErrorResponse(error, pathname), "error");
     }
 
     if (isRedirectResult(result)) {
-      return redirectResponse(result.location, result.status);
+      return devResult(redirectResponse(result.location, result.status), "page");
     }
 
     if (isNotFoundResult(result)) {
-      return renderNotFound(manifest.notFound);
+      return devResult(await renderNotFound(manifest.notFound), "page");
     }
 
-    return htmlResponse(withCssLinks(
+    return devResult(htmlResponse(withCssLinks(
       withDevBootstrap(withGlobalCssBootstrap(result, existsSync(resolve(root, "src/styles.css"))), manifest.clientComponents.length > 0),
       manifest.cssModules.map((module) => module.href),
-    ));
+    )), "page");
   }
 
   async function renderNotFound(route: Awaited<ReturnType<typeof buildPageRoutes>>["notFound"]): Promise<Response> {
@@ -157,6 +186,13 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     }
 
     return htmlResponse(isNotFoundResult(result) ? "" : result, 404);
+  }
+
+  function devResult(response: Response, kind: DevRouteKind): DevRenderResult {
+    return {
+      response,
+      kind,
+    };
   }
 
   async function getManifest(): Promise<PageRouteManifest> {
@@ -253,6 +289,51 @@ async function renderApiRoute(match: { route: ApiRoute; params: Record<string, s
   return Response.json(result);
 }
 
+function logDevRequest(entry: { method: string; pathname: string; status: number; durationMs: number; kind: DevRouteKind }): void {
+  const method = color(entry.method.padEnd(6), "\x1b[36m");
+  const status = color(String(entry.status).padStart(3), statusColor(entry.status));
+  const duration = color(`${entry.durationMs}ms`.padStart(5), "\x1b[90m");
+
+  console.log(`${method} ${status} ${duration} ${entry.pathname}`);
+}
+
+function shouldLogDevRequest(pathname: string, kind: DevRouteKind): boolean {
+  if (kind === "asset") {
+    return false;
+  }
+
+  if (
+    pathname.startsWith("/@fs/") ||
+    pathname.startsWith("/@vite/") ||
+    pathname.startsWith("/node_modules/") ||
+    pathname === "/favicon.ico"
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function statusColor(status: number): string {
+  if (status >= 500) {
+    return "\x1b[31m";
+  }
+
+  if (status >= 400) {
+    return "\x1b[33m";
+  }
+
+  if (status >= 300) {
+    return "\x1b[36m";
+  }
+
+  return "\x1b[32m";
+}
+
+function color(value: string, code: string): string {
+  return `${code}${value}\x1b[0m`;
+}
+
 function methodNotAllowedResponse(methods: string[]): Response {
   return new Response("Method Not Allowed", {
     status: 405,
@@ -344,17 +425,60 @@ async function renderCssModule(pathname: string, manifest: Awaited<ReturnType<ty
 }
 
 export function startElizabethDevServer(options: ElizabethDevOptions): ReturnType<typeof Bun.serve> {
-  const port = options.port ?? 3000;
+  const requestedPort = options.port ?? 3712;
   const fetch = createElizabethDevHandler(options);
+  let port = requestedPort;
 
-  const server = Bun.serve({
-    port,
-    idleTimeout: 255,
-    fetch,
-  });
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      const server = Bun.serve({
+        port,
+        idleTimeout: 255,
+        fetch,
+      });
 
-  console.log(`Elizabeth dev server listening on http://localhost:${server.port}`);
-  return server;
+      printDevServerReady({
+        port: server.port,
+        requestedPort,
+        root: options.root,
+      });
+      return server;
+    } catch (error) {
+      if (!isPortInUseError(error)) {
+        throw error;
+      }
+
+      if (attempt === 19) {
+        throw new Error(`Elizabeth could not find an available port from ${requestedPort} to ${port}.`);
+      }
+
+      port++;
+    }
+  }
+
+  throw new Error("Elizabeth could not start the dev server.");
+}
+
+function isPortInUseError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const coded = error as Error & { code?: string };
+  return coded.code === "EADDRINUSE" || error.message.includes("EADDRINUSE") || error.message.includes("port") && error.message.includes("use");
+}
+
+function printDevServerReady(options: { port: number; requestedPort: number; root: string }): void {
+  const portNote = options.port === options.requestedPort
+    ? ""
+    : `\n  Port ${options.requestedPort} was busy, using ${options.port} instead.`;
+
+  console.log(`
+Elizabeth dev server
+
+  Local:   http://localhost:${options.port}
+           http://127.0.0.1:${options.port}${portNote}
+`);
 }
 
 function htmlResponse(html: string, status = 200): Response {
@@ -431,12 +555,100 @@ globalThis.__elizabethRegisterIsland = (name, hydrate) => registry.set(name, hyd
 let manifest = await fetch("/_elizabeth/client-manifest.json").then((response) => response.json());
 const islandUrl = (moduleId) => "/_elizabeth/islands/" + encodeURIComponent(moduleId);
 await Promise.all(manifest.islands.map((island) => import(islandUrl(island.moduleId))));
-for (const island of document.querySelectorAll("el-island[data-elizabeth-client]")) {
-  registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
+function hydrateElizabethIslands(root = document) {
+  for (const island of root.querySelectorAll("el-island[data-elizabeth-client]")) {
+    registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
+  }
 }
+hydrateElizabethIslands();
 ` : "";
-  const script = `<script type="module">
+const script = `<script type="module">
 ${islandScript}
+const hydrateElizabethAfterSwap = ${hasIslands ? "hydrateElizabethIslands" : "() => {}"};
+let elizabethNavigationId = 0;
+let elizabethNavigationAbort = null;
+document.addEventListener("click", async (event) => {
+  const link = event.target.closest?.("a[href]");
+  if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return;
+  }
+  if (link.target || link.hasAttribute("download")) {
+    return;
+  }
+  const nextUrl = new URL(link.href, location.href);
+  if (nextUrl.origin !== location.origin || nextUrl.pathname === location.pathname && nextUrl.search === location.search) {
+    return;
+  }
+  const currentBoundary = deepestSharedBoundary(document, document);
+  if (!currentBoundary) {
+    return;
+  }
+  event.preventDefault();
+  const navigationId = ++elizabethNavigationId;
+  elizabethNavigationAbort?.abort();
+  const controller = new AbortController();
+  elizabethNavigationAbort = controller;
+  try {
+    const response = await fetch(nextUrl.href, {
+      signal: controller.signal,
+      headers: {
+        "x-elizabeth-navigation": "1",
+      },
+    });
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const html = await response.text();
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    const nextDocument = new DOMParser().parseFromString(html, "text/html");
+    const pair = deepestSharedBoundary(document, nextDocument);
+    if (!pair) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const swap = () => {
+      if (navigationId !== elizabethNavigationId) {
+        return;
+      }
+      document.title = nextDocument.title;
+      const fresh = pair.next.cloneNode(true);
+      pair.current.replaceWith(fresh);
+      history.pushState(null, "", nextUrl.href);
+      hydrateElizabethAfterSwap(fresh);
+    };
+    swap();
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === "AbortError") {
+      return;
+    }
+    if (navigationId === elizabethNavigationId) {
+      location.href = nextUrl.href;
+    }
+  } finally {
+    if (navigationId === elizabethNavigationId) {
+      elizabethNavigationAbort = null;
+    }
+  }
+});
+addEventListener("popstate", () => location.reload());
+function deepestSharedBoundary(currentDocument, nextDocument) {
+  const current = [...currentDocument.querySelectorAll("[data-elizabeth-boundary]")];
+  const nextByKey = new Map([...nextDocument.querySelectorAll("[data-elizabeth-boundary]")].map((node) => [node.getAttribute("data-elizabeth-boundary"), node]));
+  for (let index = current.length - 1; index >= 0; index--) {
+    const key = current[index].getAttribute("data-elizabeth-boundary");
+    const next = nextByKey.get(key);
+    if (next) {
+      return { current: current[index], next };
+    }
+  }
+  return null;
+}
 const hmr = new EventSource("/_elizabeth/hmr");
 hmr.onmessage = async (event) => {
   const message = JSON.parse(event.data);

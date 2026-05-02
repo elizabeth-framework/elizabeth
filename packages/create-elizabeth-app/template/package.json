@@ -1,5 +1,5 @@
 {
-  "name": "elizabeth-starter",
+  "name": "elizabeth-app",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
@@ -9,12 +9,10 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "elizabeth": "file:/home/shinapri/Documents/proj/elizabeth"
+    "elizabeth": "npm:@lizorigin/elizabeth@^0.0.1"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.4",
-    "tailwindcss": "^4.2.4",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vite": "^8.0.10"
   }
 }

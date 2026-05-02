@@ -1,7 +1,0 @@
-@client
-@public
-<ClientBadge label="interactive soon">
-  <button className="client-badge" onClick={() => alert("Elizabeth island clicked")}>
-    {label}
-  </button>
-</ClientBadge>

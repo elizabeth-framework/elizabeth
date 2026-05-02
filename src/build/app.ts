@@ -325,7 +325,9 @@ async function renderRoute(match) {
   for (let index = match.route.layouts.length - 1; index >= 0; index--) {
     const layout = match.route.layouts[index];
     const module = await import(new URL(layout.module, import.meta.url).href);
-    html = await module.default({ children: html }, ctx);
+    html = await module.default({
+      children: routeBoundary(boundaryKey(layout.sourcePath, match.params, index), html),
+    }, ctx);
 
     if (isRedirectResult(html) || isNotFoundResult(html)) {
       return html;
@@ -333,6 +335,32 @@ async function renderRoute(match) {
   }
 
   return dedupeElizabethStyles(html);
+}
+
+function routeBoundary(key, html) {
+  return \`<elizabeth-route-boundary data-elizabeth-boundary="\${escapeAttribute(key)}" style="display: contents">\${html}</elizabeth-route-boundary>\`;
+}
+
+function boundaryKey(sourcePath, params, layoutIndex) {
+  const paramsKey = layoutIndex === 0 ? "" : JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
+  return \`layout:\${hashString(sourcePath)}:\${paramsKey}\`;
+}
+
+function escapeAttribute(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function hashString(value) {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index++) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function matchRoute(routes, pathname) {
@@ -394,17 +422,104 @@ function withCssLinks(html, hrefs) {
 }
 
 function withBuildBootstrap(html, enabled) {
-  if (!enabled) {
-    return html;
-  }
-
-  const script = \`<script type="module">
+  const islandScript = enabled ? \`
 const registry = new Map();
 globalThis.__elizabethRegisterIsland = (name, hydrate) => registry.set(name, hydrate);
 const manifest = await fetch("/_elizabeth/client-manifest.json").then((response) => response.json());
 await Promise.all(manifest.islands.map((island) => import(island.url)));
-for (const island of document.querySelectorAll("el-island[data-elizabeth-client]")) {
-  registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
+function hydrateElizabethIslands(root = document) {
+  for (const island of root.querySelectorAll("el-island[data-elizabeth-client]")) {
+    registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
+  }
+}
+hydrateElizabethIslands();
+\` : "";
+
+const script = \`<script type="module">
+\${islandScript}
+const hydrateElizabethAfterSwap = \${enabled ? "hydrateElizabethIslands" : "() => {}"};
+let elizabethNavigationId = 0;
+let elizabethNavigationAbort = null;
+document.addEventListener("click", async (event) => {
+  const link = event.target.closest?.("a[href]");
+  if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return;
+  }
+  if (link.target || link.hasAttribute("download")) {
+    return;
+  }
+  const nextUrl = new URL(link.href, location.href);
+  if (nextUrl.origin !== location.origin || nextUrl.pathname === location.pathname && nextUrl.search === location.search) {
+    return;
+  }
+  if (!deepestSharedBoundary(document, document)) {
+    return;
+  }
+  event.preventDefault();
+  const navigationId = ++elizabethNavigationId;
+  elizabethNavigationAbort?.abort();
+  const controller = new AbortController();
+  elizabethNavigationAbort = controller;
+  try {
+    const response = await fetch(nextUrl.href, {
+      signal: controller.signal,
+      headers: {
+        "x-elizabeth-navigation": "1",
+      },
+    });
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const html = await response.text();
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    const nextDocument = new DOMParser().parseFromString(html, "text/html");
+    const pair = deepestSharedBoundary(document, nextDocument);
+    if (!pair) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const swap = () => {
+      if (navigationId !== elizabethNavigationId) {
+        return;
+      }
+      document.title = nextDocument.title;
+      const fresh = pair.next.cloneNode(true);
+      pair.current.replaceWith(fresh);
+      history.pushState(null, "", nextUrl.href);
+      hydrateElizabethAfterSwap(fresh);
+    };
+    swap();
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === "AbortError") {
+      return;
+    }
+    if (navigationId === elizabethNavigationId) {
+      location.href = nextUrl.href;
+    }
+  } finally {
+    if (navigationId === elizabethNavigationId) {
+      elizabethNavigationAbort = null;
+    }
+  }
+});
+addEventListener("popstate", () => location.reload());
+function deepestSharedBoundary(currentDocument, nextDocument) {
+  const current = [...currentDocument.querySelectorAll("[data-elizabeth-boundary]")];
+  const nextByKey = new Map([...nextDocument.querySelectorAll("[data-elizabeth-boundary]")].map((node) => [node.getAttribute("data-elizabeth-boundary"), node]));
+  for (let index = current.length - 1; index >= 0; index--) {
+    const key = current[index].getAttribute("data-elizabeth-boundary");
+    const next = nextByKey.get(key);
+    if (next) {
+      return { current: current[index], next };
+    }
+  }
+  return null;
 }
 </script>\`;
 
@@ -453,8 +568,10 @@ function serializeServerRoute(route: PageRoute, distDir: string): object {
     path: route.path,
     pattern: route.pattern.source,
     paramNames: route.paramNames,
+    sourcePath: route.sourcePath,
     module: toServerImportPath(route.outputPath, distDir),
     layouts: route.layouts.map((layout) => ({
+      sourcePath: layout.sourcePath,
       module: toServerImportPath(layout.outputPath, distDir),
     })),
   };
@@ -530,17 +647,104 @@ function withCssLinks(html: string, hrefs: string[]): string {
 }
 
 function withBuildBootstrap(html: string, hasIslands: boolean): string {
-  if (!hasIslands) {
-    return html;
-  }
-
-  const script = `<script type="module">
+  const islandScript = hasIslands ? `
 const registry = new Map();
 globalThis.__elizabethRegisterIsland = (name, hydrate) => registry.set(name, hydrate);
 const manifest = await fetch("/_elizabeth/client-manifest.json").then((response) => response.json());
 await Promise.all(manifest.islands.map((island) => import(island.url)));
-for (const island of document.querySelectorAll("el-island[data-elizabeth-client]")) {
-  registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
+function hydrateElizabethIslands(root = document) {
+  for (const island of root.querySelectorAll("el-island[data-elizabeth-client]")) {
+    registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
+  }
+}
+hydrateElizabethIslands();
+` : "";
+
+const script = `<script type="module">
+${islandScript}
+const hydrateElizabethAfterSwap = ${hasIslands ? "hydrateElizabethIslands" : "() => {}"};
+let elizabethNavigationId = 0;
+let elizabethNavigationAbort = null;
+document.addEventListener("click", async (event) => {
+  const link = event.target.closest?.("a[href]");
+  if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return;
+  }
+  if (link.target || link.hasAttribute("download")) {
+    return;
+  }
+  const nextUrl = new URL(link.href, location.href);
+  if (nextUrl.origin !== location.origin || nextUrl.pathname === location.pathname && nextUrl.search === location.search) {
+    return;
+  }
+  if (!deepestSharedBoundary(document, document)) {
+    return;
+  }
+  event.preventDefault();
+  const navigationId = ++elizabethNavigationId;
+  elizabethNavigationAbort?.abort();
+  const controller = new AbortController();
+  elizabethNavigationAbort = controller;
+  try {
+    const response = await fetch(nextUrl.href, {
+      signal: controller.signal,
+      headers: {
+        "x-elizabeth-navigation": "1",
+      },
+    });
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const html = await response.text();
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    const nextDocument = new DOMParser().parseFromString(html, "text/html");
+    const pair = deepestSharedBoundary(document, nextDocument);
+    if (!pair) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const swap = () => {
+      if (navigationId !== elizabethNavigationId) {
+        return;
+      }
+      document.title = nextDocument.title;
+      const fresh = pair.next.cloneNode(true);
+      pair.current.replaceWith(fresh);
+      history.pushState(null, "", nextUrl.href);
+      hydrateElizabethAfterSwap(fresh);
+    };
+    swap();
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === "AbortError") {
+      return;
+    }
+    if (navigationId === elizabethNavigationId) {
+      location.href = nextUrl.href;
+    }
+  } finally {
+    if (navigationId === elizabethNavigationId) {
+      elizabethNavigationAbort = null;
+    }
+  }
+});
+addEventListener("popstate", () => location.reload());
+function deepestSharedBoundary(currentDocument, nextDocument) {
+  const current = [...currentDocument.querySelectorAll("[data-elizabeth-boundary]")];
+  const nextByKey = new Map([...nextDocument.querySelectorAll("[data-elizabeth-boundary]")].map((node) => [node.getAttribute("data-elizabeth-boundary"), node]));
+  for (let index = current.length - 1; index >= 0; index--) {
+    const key = current[index].getAttribute("data-elizabeth-boundary");
+    const next = nextByKey.get(key);
+    if (next) {
+      return { current: current[index], next };
+    }
+  }
+  return null;
 }
 </script>`;
 

@@ -39,7 +39,7 @@ startElizabethDevServer({
 
 function readPort(args: string[]): number {
   const raw = readOption(args, "--port") ?? readOption(args, "-p") ?? Bun.env.PORT;
-  const port = Number(raw ?? 3000);
+  const port = Number(raw ?? 3712);
 
   if (!Number.isInteger(port) || port <= 0) {
     console.error(`Invalid port: ${raw}`);
@@ -64,7 +64,7 @@ function printHelp(): void {
   console.log(`Elizabeth
 
 Usage:
-  elizabeth dev [--port 3000]
+  elizabeth dev [--port 3712]
   elizabeth build [--outDir dist]
 `);
 }

@@ -1,8 +1,0 @@
-@public
-<Button variant="primary" disabled={false}>
-  const classes = variant === "primary" ? "button button-primary" : "button";
-
-  <button className={classes} disabled={disabled}>
-    {children}
-  </button>
-</Button>

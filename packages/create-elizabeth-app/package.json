@@ -1,12 +1,17 @@
 {
   "name": "create-elizabeth-app",
-  "version": "0.0.0",
+  "version": "0.0.7",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
-    "create-elizabeth": "./src/index.ts",
-    "create-elizabeth-app": "./src/index.ts"
+    "create-elizabeth": "./bin/create-elizabeth-app",
+    "create-elizabeth-app": "./bin/create-elizabeth-app"
   },
   "files": [
-    "src"
+    "bin",
+    "src",
+    "template"
   ]
 }
