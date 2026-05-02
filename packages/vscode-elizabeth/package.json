@@ -7,7 +7,15 @@
     "vscode": "^1.90.0"
   },
   "main": "./out/vscode-elizabeth/src/extension.js",
+  "activationEvents": [
+    "onLanguage:elizabeth"
+  ],
   "contributes": {
+    "configurationDefaults": {
+      "[elizabeth]": {
+        "editor.linkedEditing": true
+      }
+    },
     "languages": [
       {
         "id": "elizabeth",
@@ -23,27 +31,26 @@
         "path": "./syntaxes/elizabeth.tmLanguage.json"
       },
       {
-        "scopeName": "elizabeth.injections.decorators",
-        "path": "./syntaxes/elizabeth-decorators.tmLanguage.json",
-        "injectTo": ["source.elizabeth"]
-      },
-      {
-        "scopeName": "elizabeth.injections.logic",
-        "path": "./syntaxes/elizabeth-logic.tmLanguage.json",
+        "scopeName": "elizabeth.injections.style",
+        "path": "./syntaxes/elizabeth-style.tmLanguage.json",
         "injectTo": ["source.elizabeth"]
       }
     ]
   },
   "scripts": {
-    "build": "tsup ./src/extension.ts ../language-server/src/index.ts --format cjs --external vscode --out-dir ./out --clean",
-    "watch": "tsup ./src/extension.ts ../language-server/src/index.ts --format cjs --external vscode --out-dir ./out --watch"
+    "build:client": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/vscode-elizabeth/src/extension.js",
+    "build:server": "tsup ../language-server/src/index.ts --format cjs --out-dir ./out/language-server/src",
+    "build": "bun run build:client && bun run build:server",
+    "package": "bun run build && vsce package --allow-missing-repository --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.28.0",
-    "tsup": "^8.5.1"
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@volar/vscode": "^2.4.28",
     "vscode-languageclient": "^9.0.1"
   },
   "extensionDependencies": [

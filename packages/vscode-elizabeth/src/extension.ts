@@ -3,9 +3,11 @@ import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
-    TransportKind
+    TransportKind,
+    Trace
 } from 'vscode-languageclient/node';
 import * as path from 'path';
+import { activateAutoInsertion } from '@volar/vscode';
 
 let client: LanguageClient;
 
@@ -23,8 +25,14 @@ export function activate(context: vscode.ExtensionContext) {
         }
     };
 
+    const documentSelector = [{ scheme: 'file', language: 'elizabeth' }];
+
+    const outputChannel = vscode.window.createOutputChannel('Elizabeth Language Server');
+
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'elizabeth' }],
+        documentSelector,
+        outputChannel,
+        traceOutputChannel: outputChannel,
         synchronize: {
             fileEvents: vscode.workspace.createFileSystemWatcher('**/*.liz')
         }
@@ -37,7 +45,10 @@ export function activate(context: vscode.ExtensionContext) {
         clientOptions
     );
 
+    client.setTrace(Trace.Verbose);
+
     client.start();
+    activateAutoInsertion(documentSelector, client);
 }
 
 export function deactivate(): Thenable<void> | undefined {

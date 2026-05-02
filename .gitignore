@@ -1,12 +1,22 @@
 
+# build & dependencies
 **/node_modules/
-
-**/.env
-
+packages/vscode-elizabeth/out
 **/*.vsix
-
-TODO.md
-
+**/package-lock.json
 dist/
 .elizabeth/
 .elizabeth-*/
+**/.env
+
+
+# test
+TODO.md
+**/tmp*
+**/test*
+
+
+
+
+
+

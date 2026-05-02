@@ -6,7 +6,7 @@ import { defaultTailwindPlugins, findViteConfig, importVite, type ViteDevServerL
 import { loadElizabethConfig } from "../config.ts";
 import { renderDevError } from "./error.ts";
 import { isNotFoundResult, isRedirectResult } from "../route.ts";
-import { buildApiRoutes, matchApiRoute, type ApiRoute } from "../router/api.ts";
+import { buildApiRoutes, describeApiRouteBuildError, matchApiRoute, type ApiRoute } from "../router/api.ts";
 import { buildPageRoutes, matchPageRoute } from "../router/pages.ts";
 import type { PageRouteManifest } from "../router/pages.ts";
 import { renderPageRoute } from "../router/render.ts";
@@ -121,6 +121,9 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
 
     const method = request.method.toUpperCase();
     const apiMatch = matchApiRoute(apiRoutes, pathname);
+    if (apiMatch && apiMatch.route.error) {
+      return devResult(apiRouteBuildFailureResponse(apiMatch.route), "api");
+    }
     if (apiMatch && apiMatch.route.methods.includes(method)) {
       return devResult(await renderApiRoute(apiMatch, method, request), "api");
     }
@@ -214,6 +217,12 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       frameworkRoot,
       apiRoots: config.apiRoutes,
       outDir,
+      onError(route, error) {
+        console.warn(describeApiRouteBuildError(route, error));
+        if (error instanceof Error && error.stack) {
+          console.warn(error.stack);
+        }
+      },
     });
 
     return cachedApiRoutes;
@@ -260,6 +269,10 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
 }
 
 async function renderApiRoute(match: { route: ApiRoute; params: Record<string, string> }, method: string, request: Request): Promise<Response> {
+  if (match.route.error) {
+    return apiRouteBuildFailureResponse(match.route);
+  }
+
   const module = await import(`${pathToFileURL(match.route.outputPath).href}?t=${Date.now()}`);
   const handler = module[method];
 
@@ -287,6 +300,15 @@ async function renderApiRoute(match: { route: ApiRoute; params: Record<string, s
   }
 
   return Response.json(result);
+}
+
+function apiRouteBuildFailureResponse(route: ApiRoute): Response {
+  return new Response(`API route failed to build: ${route.path}\n${route.error ?? "Unknown error"}`, {
+    status: 500,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+    },
+  });
 }
 
 function logDevRequest(entry: { method: string; pathname: string; status: number; durationMs: number; kind: DevRouteKind }): void {

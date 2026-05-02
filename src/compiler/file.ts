@@ -411,6 +411,16 @@ function readTopLevelModuleChunkEnd(source: string, start: number): number {
       return index;
     }
 
+    if (
+      char === "<" &&
+      braceDepth === 0 &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      isEndpointMethodStart(source, index)
+    ) {
+      return index;
+    }
+
     if (char === "{") braceDepth++;
     else if (char === "}") braceDepth--;
     else if (char === "(") parenDepth++;

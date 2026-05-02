@@ -7,19 +7,60 @@ export class LizVirtualCode implements VirtualCode {
     mappings: CodeMapping[];
     embeddedCodes: VirtualCode[] = [];
 
-    constructor(public snapshot: ts.IScriptSnapshot) {
+    constructor(public sourceSnapshot: ts.IScriptSnapshot) {
         this.onSnapshotUpdated();
     }
 
     public update(newSnapshot: ts.IScriptSnapshot) {
-        this.snapshot = newSnapshot;
+        this.sourceSnapshot = newSnapshot;
         this.onSnapshotUpdated();
     }
 
+    get snapshot() {
+        return this.generatedSnapshot;
+    }
+
+    private generatedSnapshot: ts.IScriptSnapshot;
+
     private onSnapshotUpdated() {
-        const text = this.snapshot.getText(0, this.snapshot.getLength());
+        const text = this.sourceSnapshot.getText(0, this.sourceSnapshot.getLength());
         
-        let generatedText = '';
+        let generatedText = `
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      div: ElizabethHTMLAttributes;
+      span: ElizabethHTMLAttributes;
+      p: ElizabethHTMLAttributes;
+      h1: ElizabethHTMLAttributes;
+      h2: ElizabethHTMLAttributes;
+      h3: ElizabethHTMLAttributes;
+      button: ElizabethHTMLAttributes;
+      input: ElizabethHTMLAttributes;
+      a: ElizabethHTMLAttributes;
+      img: ElizabethHTMLAttributes;
+      [name: string]: ElizabethHTMLAttributes;
+    }
+
+    interface ElizabethHTMLAttributes {
+      class?: string;
+      className?: string;
+      id?: string;
+      style?: any;
+      href?: string;
+      src?: string;
+      alt?: string;
+      type?: string;
+      value?: any;
+      placeholder?: string;
+      disabled?: boolean;
+      onClick?: any;
+      onInput?: any;
+      onChange?: any;
+    }
+  }
+}
+`;
         this.mappings = [];
 
         // Replace decorators with spaces to not break offsets
@@ -152,22 +193,25 @@ export class LizVirtualCode implements VirtualCode {
         
         // Mask <style> contents in generated TSX so TS doesn't parse CSS
         const generatedStyleRegex = /<style>([\s\S]*?)<\/style>/g;
-        generatedText = generatedText.replace(generatedStyleRegex, (m, p1) => {
+        const finalGeneratedText = generatedText.replace(generatedStyleRegex, (m, p1) => {
             return `<style>${' '.repeat(p1.length)}</style>`;
         });
 
-        this.snapshot = {
-            getText: (start, end) => generatedText.substring(start, end),
-            getLength: () => generatedText.length,
+        this.generatedSnapshot = {
+            getText: (start, end) => finalGeneratedText.substring(start, end),
+            getLength: () => finalGeneratedText.length,
             getChangeRange: () => undefined
         };
     }
 }
 
 export const lizLanguagePlugin: LanguagePlugin<LizVirtualCode> = {
-    getLanguageId(uri) {
-        if (uri.endsWith('.liz')) {
-            return 'elizabeth';
+    getLanguageId(uri: any) {
+        if (typeof uri === 'string') {
+            if (uri.endsWith('.liz')) return 'elizabeth';
+        }
+        if (typeof uri === 'object' && uri !== null) {
+            if (uri.path?.endsWith('.liz') || uri.fsPath?.endsWith('.liz')) return 'elizabeth';
         }
     },
     createVirtualCode(fileId, languageId, snapshot) {

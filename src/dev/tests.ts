@@ -2,12 +2,15 @@ import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { buildElizabethApp } from "../build/app.ts";
 import { compileElizabeth } from "../compiler/compile.ts";
+import { buildApiRoutes } from "../router/api.ts";
 import { renderDevError } from "./error.ts";
 
 await testInlineStyleClassMangling();
 await testAttributeErrorLocation();
 await testMarkupExpressionErrorLocation();
 await testRuntimeErrorTraceExpressionMapping();
+await testApiRouteBuildIsolation();
+await testApiRouteGlobalScript();
 await testStaticBuildClientAssets();
 await testViteGlobalCssBuild();
 
@@ -102,6 +105,62 @@ export default async function HomePage() {
   const html = renderDevError(error, "/");
 
   assert(html.includes("src/pages/index.liz:3:6"), "runtime trace should point generated escapeHtml expressions at the .liz expression");
+}
+
+async function testApiRouteBuildIsolation(): Promise<void> {
+  const root = "/tmp/elizabeth-api-isolation";
+  const errors: string[] = [];
+
+  await rm(root, { recursive: true, force: true });
+  await mkdir(resolve(root, "src/api"), { recursive: true });
+  await writeFile(resolve(root, "src/api/ok.ts"), `export function GET() {
+  return Response.json({ ok: true });
+}
+`);
+  await writeFile(resolve(root, "src/api/broken.liz"), `@public
+<GET>
+  <p>Hello</p>
+</GET>
+`);
+
+  const routes = await buildApiRoutes({
+    root,
+    frameworkRoot: resolve("."),
+    apiRoots: [{ dir: resolve(root, "src/api"), basePath: "/api" }],
+    outDir: resolve(root, ".elizabeth"),
+    onError(route, error) {
+      errors.push(`${route.path}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  assert(routes.some((route) => route.path === "/api/ok"), "healthy API route should still build");
+  const broken = routes.find((route) => route.path === "/api/broken");
+  assert(broken, "broken API route should stay in the manifest");
+  assert(broken.error, "broken API route should carry its build error");
+  assert(errors.length === 1, "broken API route should emit one build error");
+  assert(errors[0].startsWith("/api/broken:"), "broken API route error should identify the route");
+}
+
+async function testApiRouteGlobalScript(): Promise<void> {
+  const root = "/tmp/elizabeth-api-global-script";
+
+  await rm(root, { recursive: true, force: true });
+  await mkdir(resolve(root, "src/api"), { recursive: true });
+  await writeFile(resolve(root, "src/api/hello.liz"), `const testText = "HelloWorld";
+
+<GET>
+  <p>The text is {testText}</p>
+</GET>
+`);
+
+  const routes = await buildApiRoutes({
+    root,
+    frameworkRoot: resolve("."),
+    apiRoots: [{ dir: resolve(root, "src/api"), basePath: "/api" }],
+    outDir: resolve(root, ".elizabeth"),
+  });
+
+  assert(routes.some((route) => route.path === "/api/hello"), "top-level global script should be accepted in API .liz files");
 }
 
 async function testStaticBuildClientAssets(): Promise<void> {

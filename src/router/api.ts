@@ -9,8 +9,9 @@ export interface ApiRoute {
   pattern: RegExp;
   paramNames: string[];
   sourcePath: string;
-  outputPath: string;
+  outputPath: string | null;
   methods: string[];
+  error: string | null;
 }
 
 export interface ApiRouteMatch {
@@ -24,6 +25,12 @@ export interface BuildApiRoutesOptions {
   apiRoots: RouteRoot[];
   outDir: string;
   context?: CompileGraphContext;
+  onError?: (route: { path: string; sourcePath: string }, error: unknown) => void;
+}
+
+export function describeApiRouteBuildError(route: { path: string; sourcePath: string }, error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return `API route failed to build ${route.path} (${route.sourcePath}): ${reason}`;
 }
 
 export async function buildApiRoutes(options: BuildApiRoutesOptions): Promise<ApiRoute[]> {
@@ -36,23 +43,38 @@ export async function buildApiRoutes(options: BuildApiRoutesOptions): Promise<Ap
     }
 
     for (const sourcePath of await findApiFiles(apiRoot.dir)) {
-      const { outputPath, methods } = await compileElizabethEndpointFile(sourcePath, {
-        root: options.root,
-        frameworkRoot: options.frameworkRoot,
-        outDir: options.outDir,
-        context,
-      });
       const path = routePathFor(sourcePath, apiRoot.dir, apiRoot.basePath);
-      const matcher = routeMatcherFor(path);
+      try {
+        const { outputPath, methods } = await compileElizabethEndpointFile(sourcePath, {
+          root: options.root,
+          frameworkRoot: options.frameworkRoot,
+          outDir: options.outDir,
+          context,
+        });
+        const matcher = routeMatcherFor(path);
 
-      routes.push({
-        path,
-        pattern: matcher.pattern,
-        paramNames: matcher.paramNames,
-        sourcePath,
-        outputPath,
-        methods,
-      });
+        routes.push({
+          path,
+          pattern: matcher.pattern,
+          paramNames: matcher.paramNames,
+          sourcePath,
+          outputPath,
+          methods,
+          error: null,
+        });
+      } catch (error) {
+        const matcher = routeMatcherFor(path);
+        options.onError?.({ path, sourcePath }, error);
+        routes.push({
+          path,
+          pattern: matcher.pattern,
+          paramNames: matcher.paramNames,
+          sourcePath,
+          outputPath: null,
+          methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 

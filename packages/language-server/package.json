@@ -1,6 +1,5 @@
 {
   "name": "language-server",
-  "module": "index.ts",
   "type": "module",
   "private": true,
   "devDependencies": {
@@ -14,6 +13,7 @@
     "@volar/language-server": "^2.4.28",
     "@volar/language-service": "^2.4.28",
     "volar-service-css": "^0.0.70",
+    "volar-service-emmet": "^0.0.70",
     "volar-service-typescript": "^0.0.70"
   }
 }

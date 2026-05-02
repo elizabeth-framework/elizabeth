@@ -8,5 +8,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src/**/*.ts", "packages/create-elizabeth-app/src/**/*.ts"]
+  "include": ["src/**/*.ts", "packages/**/*"]
 }

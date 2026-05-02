@@ -3,7 +3,7 @@ import { dirname, relative, resolve } from "node:path";
 import { buildGlobalCssWithVite, defaultTailwindPlugins, findViteConfig, importVite } from "../css/global.ts";
 import { loadElizabethConfig } from "../config.ts";
 import { isNotFoundResult, isRedirectResult } from "../route.ts";
-import { buildApiRoutes, type ApiRoute } from "../router/api.ts";
+import { buildApiRoutes, describeApiRouteBuildError, type ApiRoute } from "../router/api.ts";
 import { buildPageRoutes } from "../router/pages.ts";
 import type { PageRoute, PageRouteManifest } from "../router/pages.ts";
 import { renderPageRoute } from "../router/render.ts";
@@ -44,6 +44,12 @@ export async function buildElizabethApp(options: ElizabethBuildOptions): Promise
     frameworkRoot,
     apiRoots: config.apiRoutes,
     outDir,
+    onError(route, error) {
+      console.warn(describeApiRouteBuildError(route, error));
+      if (error instanceof Error && error.stack) {
+        console.warn(error.stack);
+      }
+    },
   });
   assertNoRouteConflicts(manifest.routes.map((route) => ({ path: route.path, methods: ["GET", "HEAD"], sourcePath: route.sourcePath })), apiRoutes);
 
@@ -218,7 +224,11 @@ Bun.serve({
       return serveStatic(url.pathname);
     }
 
-    const apiMatch = matchRoute(apiRoutes, url.pathname);
+const apiMatch = matchRoute(apiRoutes, url.pathname);
+    if (apiMatch && apiMatch.route.error) {
+      return apiRouteBuildFailureResponse(apiMatch.route);
+    }
+
     if (apiMatch && apiMatch.route.methods.includes(request.method.toUpperCase())) {
       return renderApiRoute(apiMatch, request);
     }
@@ -236,7 +246,12 @@ Bun.serve({
   },
 });
 
-console.log(\`Elizabeth production server listening on http://localhost:\${port}\`);
+console.log(\`
+Elizabeth production server
+
+  Local:   http://localhost:\${port}
+           http://127.0.0.1:\${port}
+\`);
 
 async function renderMatchedRoute(match, status) {
   const result = await renderRoute(match);
@@ -256,6 +271,10 @@ async function renderMatchedRoute(match, status) {
 }
 
 async function renderApiRoute(match, request) {
+  if (match.route.error) {
+    return apiRouteBuildFailureResponse(match.route);
+  }
+
   const module = await import(new URL(match.route.module, import.meta.url).href);
   const method = request.method.toUpperCase();
   const handler = module[method];
@@ -282,6 +301,13 @@ async function renderApiRoute(match, request) {
   }
 
   return Response.json(result);
+}
+
+function apiRouteBuildFailureResponse(route) {
+  return new Response("API route failed to build: " + route.path + "\\n" + (route.error ?? "Unknown error"), {
+    status: 500,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
 }
 
 function methodNotAllowedResponse(methods) {
@@ -583,7 +609,8 @@ function serializeServerApiRoute(route: ApiRoute, distDir: string): object {
     pattern: route.pattern.source,
     paramNames: route.paramNames,
     methods: route.methods,
-    module: toServerImportPath(route.outputPath, distDir),
+    module: route.outputPath ? toServerImportPath(route.outputPath, distDir) : null,
+    error: route.error,
   };
 }
 

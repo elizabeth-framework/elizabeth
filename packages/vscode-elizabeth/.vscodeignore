@@ -1,3 +1,13 @@
 node_modules/
 src/
 ../language-server/
+
+*
+!package.json
+!README.md
+!LICENSE.md
+!language-configuration.json
+!syntaxes/
+!syntaxes/**
+!out/
+!out/**

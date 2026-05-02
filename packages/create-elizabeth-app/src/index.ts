@@ -76,7 +76,7 @@ function shouldSkipTemplateEntry(name: string): boolean {
 async function writeGeneratedPackageJson(target: string, options: CreateOptions): Promise<void> {
   await writeFile(resolve(target, "package.json"), `${JSON.stringify({
     name: options.packageName,
-    version: "0.0.0",
+    version: "0.0.1",
     type: "module",
     scripts: {
       dev: "elizabeth dev",
@@ -155,7 +155,7 @@ function packageNameFor(targetDir: string): string {
 }
 
 function defaultElizabethSpecifier(): string {
-  return "npm:@lizorigin/elizabeth@^0.0.1";
+  return "npm:@lizorigin/elizabeth@^0.0.2";
 }
 
 function printHelp(): void {

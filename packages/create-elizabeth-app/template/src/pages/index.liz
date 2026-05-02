@@ -1,5 +1,12 @@
 import { Counter } from "../components/Counter.liz"
 
+const test = "test"
+// tresty
+
+let ddd = "dasda"
+
+const [test] = ["test"]
+
 @default
 <HomePage>
 
