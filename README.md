@@ -4,15 +4,15 @@
 
 # Elizabeth
 
-Elizabeth is a Bun-first full-stack web framework with `.liz` components, server rendering by default, file routes, API routes, scoped styles, CSS modules, client islands, and automatic same-layout navigation.
+Elizabeth is a Bun full-stack web framework with `.liz` components, server rendering, file routes, API routes, scoped styles, CSS modules, client islands, and automatic layout transition.
 
 This is an early `0.0.x` release. Expect rough edges while the syntax and runtime settle.
 
 ## Create An App
 
 ```bash
-bun create elizabeth app
-cd app
+bun create elizabeth my-app
+cd my-app
 bun run dev
 ```
 
@@ -20,7 +20,7 @@ The dev server starts on port `3712` by default.
 
 ## Component Syntax
 
-```liz
+```tsx
 @default
 <HomePage>
   const items = [
@@ -40,19 +40,17 @@ The dev server starts on port `3712` by default.
   <main className="hero">
     <h1>Elizabeth</h1>
     <ul>
-      {for (const item of items) {
-        <li>{item.text}</li>
-      }}
+      {
+        for (const item of items) {
+          <li>{item.text}</li>
+        }
+      }
     </ul>
   </main>
 </HomePage>
 ```
 
-`{...}` inside markup is JavaScript. To render text that looks like template syntax, use a string expression:
-
-```liz
-<code>{"#if"}</code>
-```
+`{...}` inside markup is JavaScript. To render text that looks like template syntax, use a string expression.
 
 ## Routes
 
@@ -100,7 +98,7 @@ export default {
 
 `layout.liz` wraps child routes:
 
-```liz
+```tsx
 @default
 <RootLayout>
   <html>
@@ -115,7 +113,7 @@ export default {
 </RootLayout>
 ```
 
-When a shared layout exists, Elizabeth enhances same-origin link clicks by fetching the next page and swapping only the layout child boundary. There is no visual fade by default.
+When a shared layout exists, Elizabeth enhances same-origin link clicks by fetching the next page and swapping only the layout child boundary.
 
 ## Client Islands
 
@@ -133,11 +131,11 @@ import { clientState } from "elizabeth/client"
 </Counter>
 ```
 
-## Commands
+## Build
 
 ```bash
-elizabeth dev
-elizabeth build
+bun run build
+bun run start
 ```
 
-`elizabeth build` creates both static HTML for static routes and a production `dist/server.js`.
+`bun run build` creates both static HTML for static routes and a production `dist/server.js`. 
