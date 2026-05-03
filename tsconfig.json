@@ -6,7 +6,9 @@
     "strict": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": []
+    "types": [],
+    "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "packages/**/*"]
+  "include": ["src/**/*.ts", "packages/*/src/**/*.ts"],
+  "exclude": ["node_modules", "dist", ".elizabeth", "packages/*/dist", "packages/*/out", "packages/vscode-elizabeth/out"]
 }

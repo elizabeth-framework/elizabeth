@@ -1,10 +1,11 @@
 import type { LanguagePlugin, VirtualCode, CodeMapping } from '@volar/language-core';
+import { URI } from 'vscode-uri';
 import type * as ts from 'typescript';
 
 export class LizVirtualCode implements VirtualCode {
     id = 'root';
     languageId = 'typescriptreact';
-    mappings: CodeMapping[];
+    mappings!: CodeMapping[];
     embeddedCodes: VirtualCode[] = [];
 
     constructor(public sourceSnapshot: ts.IScriptSnapshot) {
@@ -20,7 +21,7 @@ export class LizVirtualCode implements VirtualCode {
         return this.generatedSnapshot;
     }
 
-    private generatedSnapshot: ts.IScriptSnapshot;
+    private generatedSnapshot!: ts.IScriptSnapshot;
 
     private onSnapshotUpdated() {
         const text = this.sourceSnapshot.getText(0, this.sourceSnapshot.getLength());
@@ -75,7 +76,7 @@ export {};
         const capabilities = {
             verification: true,
             completion: true,
-            semanticTokens: true,
+            semantic: true,
             navigation: true,
             structure: true,
             format: true,
@@ -195,7 +196,7 @@ export {};
                     data: {
                         verification: true,
                         completion: true,
-                        semanticTokens: true,
+                        semantic: true,
                         navigation: true,
                         structure: true,
                         format: true,
@@ -218,14 +219,9 @@ export {};
     }
 }
 
-export const lizLanguagePlugin: LanguagePlugin<LizVirtualCode> = {
-    getLanguageId(uri: any) {
-        if (typeof uri === 'string') {
-            if (uri.endsWith('.liz')) return 'elizabeth';
-        }
-        if (typeof uri === 'object' && uri !== null) {
-            if (uri.path?.endsWith('.liz') || uri.fsPath?.endsWith('.liz')) return 'elizabeth';
-        }
+export const lizLanguagePlugin: LanguagePlugin<URI, LizVirtualCode> = {
+    getLanguageId(uri: URI) {
+        if (uri.path.endsWith('.liz') || uri.fsPath.endsWith('.liz')) return 'elizabeth';
     },
     createVirtualCode(fileId, languageId, snapshot) {
         if (languageId === 'elizabeth') {

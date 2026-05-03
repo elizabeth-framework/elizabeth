@@ -23,11 +23,6 @@ interface ImportMeta {
   readonly dir: string;
 }
 
-declare const process: {
-  cwd(): string;
-  exit(code?: number): never;
-};
-
 declare function setInterval(callback: () => void | Promise<void>, ms: number): unknown;
 
 declare module "node:fs" {
