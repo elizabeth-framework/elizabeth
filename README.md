@@ -1,3 +1,7 @@
+<kbd>
+  <img src="./assets/banner.png">
+</kbd>
+
 # Elizabeth
 
 Elizabeth is a Bun-first full-stack web framework with `.liz` components, server rendering by default, file routes, API routes, scoped styles, CSS modules, client islands, and automatic same-layout navigation.

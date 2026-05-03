@@ -14,6 +14,7 @@ await testApiRouteGlobalScript();
 await testMissingComponentDecoratorError();
 await testStaticBuildClientAssets();
 await testViteGlobalCssBuild();
+await testFragmentMarkup();
 
 console.log("Elizabeth focused tests passed");
 
@@ -171,7 +172,8 @@ async function testMissingComponentDecoratorError(): Promise<void> {
 </ShowSomething>`, "missing-decorator.liz");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    assert(message.includes("Expected @declare, @public, @default, or @private before component declaration."), "missing decorator should produce a targeted error");
+    assert(message.includes("Unexpected top-level component-like ShowSomething tag."), "missing decorator should produce a targeted error");
+    assert(message.includes("add @declare, @public, @default, or @private before it"), "missing decorator should explain the fix");
     assert(message.startsWith("missing-decorator.liz:1:1:"), "missing decorator error should point at the component tag");
     return;
   }
@@ -313,4 +315,19 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+async function testFragmentMarkup(): Promise<void> {
+  const code = compileElizabeth(`@default
+<Page>
+  <>
+    <h1>Hello</h1>
+    <p>World</p>
+  </>
+</Page>`, "fragment.liz").code;
+
+  assert(!code.includes(`"<>”`), "fragment open tag should not be emitted");
+  assert(!code.includes(`"</>"`), "fragment close tag should not be emitted");
+  assert(code.includes("<h1>"), "fragment children should still render");
+  assert(code.includes("<p>"), "fragment children should still render");
 }

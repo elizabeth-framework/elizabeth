@@ -496,6 +496,43 @@ interface EmitHtmlOptions {
   sourceOffset?: number;
 }
 
+function findFragmentClose(source: string, open: MarkupTag): MarkupTag {
+  let index = open.end;
+  let depth = 1;
+
+  while (index < source.length) {
+    if (sourceStartsWithHtmlComment(source, index)) {
+      index = readHtmlCommentEnd(source, index);
+      continue;
+    }
+
+    if (source[index] === "{") {
+      index = findMatching(source, index, "{", "}") + 1;
+      continue;
+    }
+
+    if (source[index] !== "<") {
+      index++;
+      continue;
+    }
+
+    const tag = readMarkupTag(source, index);
+
+    if (tag.fragment && !tag.closing) {
+      depth++;
+    } else if (tag.fragment && tag.closing) {
+      depth--;
+      if (depth === 0) {
+        return tag;
+      }
+    }
+
+    index = tag.end;
+  }
+
+  throw new MarkupSyntaxError("Missing closing fragment tag </>.", open.start);
+}
+
 function emitMarkupStatements(markup: string, target: string, options: EmitHtmlOptions = {}): string {
   const statements: string[] = [];
   let text = "";
@@ -542,6 +579,24 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
       }
 
       const tag = readMarkupTag(markup, index);
+
+      if (tag.fragment && !tag.closing) {
+        flushText();
+        const close = findFragmentClose(markup, tag);
+        statements.push(
+          emitMarkupStatements(
+            markup.slice(tag.end, close.start),
+            target,
+            withSourceOffset(options, sourceOffset + tag.end),
+          ),
+        );
+        index = close.end;
+        continue;
+      }
+
+      if (tag.fragment && tag.closing) {
+        throw new MarkupSyntaxError("Unexpected closing fragment tag </>.", sourceOffset + index);
+      }
 
       if (tag.isComponent && !tag.closing) {
         flushText();
@@ -770,7 +825,7 @@ function readMarkupRunEnd(source: string, start: number): number {
       const tag = readMarkupTag(source, index);
       index = tag.end;
 
-      if (!tag.closing && !tag.selfClosing && isRawTextElement(tag.name)) {
+      if (!tag.fragment && !tag.closing && !tag.selfClosing && isRawTextElement(tag.name)) {
         index = findRawTextClose(source, tag).end;
       }
 
@@ -866,7 +921,12 @@ function withSourceOffset(options: EmitHtmlOptions, sourceOffset: number): EmitH
 }
 
 function isMarkupStart(source: string, index: number): boolean {
-  return source.startsWith("<!--", index) || /^<\/?[A-Za-z][A-Za-z0-9_.-]*/.test(source.slice(index));
+  return (
+    source.startsWith("<!--", index) ||
+    source.startsWith("<>", index) ||
+    source.startsWith("</>", index) ||
+    /^<\/?[A-Za-z][A-Za-z0-9_.-]*/.test(source.slice(index))
+  );
 }
 
 function validateScriptBlockHeader(header: string): void {
@@ -954,6 +1014,12 @@ function emitHtmlExpression(markup: string, options: EmitHtmlOptions = {}): stri
       }
 
       const tag = readMarkupTag(markup, index);
+
+      if (tag.fragment) {
+        flushText();
+        index = tag.end;
+        continue;
+      }
 
       if (tag.isComponent && !tag.closing) {
         flushText();
@@ -1139,6 +1205,7 @@ interface MarkupTag {
   isComponent: boolean;
   start: number;
   end: number;
+  fragment: boolean;
 }
 
 function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}): string {
@@ -1239,6 +1306,35 @@ function emitPropsObject(attributes: MarkupAttribute[], children?: string): stri
 }
 
 function readMarkupTag(source: string, start: number): MarkupTag {
+
+  if (source.startsWith("<>", start)) {
+    return {
+      raw: "",
+      name: "",
+      attributes: [],
+      closing: false,
+      selfClosing: false,
+      isComponent: false,
+      fragment: true,
+      start,
+      end: start + 2,
+    };
+  }
+
+  if (source.startsWith("</>", start)) {
+    return {
+      raw: "",
+      name: "",
+      attributes:  [],
+      closing: true,
+      selfClosing: false,
+      isComponent: false,
+      fragment: true,
+      start: start,
+      end: start + 3,
+    };
+  }
+
   const tagEnd = findTagEnd(source, start);
   const raw = source.slice(start, tagEnd + 1);
   const closing = raw.startsWith("</");
@@ -1255,16 +1351,18 @@ function readMarkupTag(source: string, start: number): MarkupTag {
   const attributesSource = closing ? "" : raw.slice(attributesStart, attributesEnd);
 
   return {
-    raw,
-    name,
+    raw: raw,
+    name: name,
     attributes: parseAttributes(attributesSource, start + attributesStart),
-    closing,
-    selfClosing,
+    closing: closing,
+    selfClosing: selfClosing,
     isComponent: /^[A-Z]/.test(name),
-    start,
+    start: start,
     end: tagEnd + 1,
+    fragment: false,
   };
 }
+
 
 function sourceStartsWithHtmlComment(source: string, index: number): boolean {
   return source.startsWith("<!--", index);

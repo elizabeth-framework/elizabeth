@@ -1,37 +1,28 @@
 {
   "scopeName": "elizabeth.injections.style",
-  "injectionSelector": "L:source.elizabeth - comment.line.double-slash.elizabeth - comment.block.elizabeth",
+  "injectionSelector": "L:source.elizabeth - comment.block.elizabeth - comment.line.double-slash.elizabeth",
   "patterns": [
+    {
+      "begin": "\\{\\s*/\\*",
+      "end": "\\*/\\s*\\}",
+      "name": "comment.block.elizabeth"
+    },
     {
       "begin": "^(\\s*)(<)(style)([^>]*)(>)",
       "beginCaptures": {
-        "2": {
-          "name": "punctuation.definition.tag.begin.html"
-        },
-        "3": {
-          "name": "entity.name.tag.style.html"
-        },
-        "5": {
-          "name": "punctuation.definition.tag.end.html"
-        }
+        "2": { "name": "punctuation.definition.tag.begin.html" },
+        "3": { "name": "entity.name.tag.style.html" },
+        "5": { "name": "punctuation.definition.tag.end.html" }
       },
       "end": "^(\\s*)(</)(style)(>)",
       "endCaptures": {
-        "2": {
-          "name": "punctuation.definition.tag.begin.html"
-        },
-        "3": {
-          "name": "entity.name.tag.style.html"
-        },
-        "4": {
-          "name": "punctuation.definition.tag.end.html"
-        }
+        "2": { "name": "punctuation.definition.tag.begin.html" },
+        "3": { "name": "entity.name.tag.style.html" },
+        "4": { "name": "punctuation.definition.tag.end.html" }
       },
       "contentName": "source.css",
       "patterns": [
-        {
-          "include": "source.css"
-        }
+        { "include": "source.css" }
       ]
     }
   ]

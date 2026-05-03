@@ -1,0 +1,76 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "scopeName": "elizabeth.injections.tags",
+  "injectionSelector": "L:source.elizabeth - comment",
+  "patterns": [
+    {
+        "match": "(?<!\\w)@(public|default|declare|private|client)\\b",
+        "name": "keyword.control.elizabeth"
+    },
+    {
+        "match": "\\b(const|let|var)\\b",
+        "name": "storage.type.elizabeth"
+    },
+    {
+        "match": "\\b(if|else|for|while|switch|case|return|throw|try|catch|finally|async|await|function|import|export|type|interface|enum|class)\\b",
+        "name": "keyword.control.elizabeth"
+    },
+    {
+        "match": "(?<=[>}])([^<{}\\n]+)(?=<|\\{|$)",
+        "captures": {
+            "1": {
+            "name": "text.html.elizabeth"
+            }
+        }
+    },
+    {
+      "match": "(</?)([A-Za-z][A-Za-z0-9_:.\\-]*)([^>]*)(/?>)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.html"
+        },
+        "2": {
+          "name": "entity.name.tag.elizabeth"
+        },
+        "3": {
+          "patterns": [
+            { "include": "#attributes" },
+            { "include": "#strings" },
+            { "include": "source.tsx" }
+          ]
+        },
+        "4": {
+          "name": "punctuation.definition.tag.end.html"
+        }
+      }
+    }
+  ],
+  "repository": {
+    "attributes": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_:][A-Za-z0-9_:.-]*)(?=\\s*=)",
+          "captures": {
+            "1": {
+              "name": "entity.other.attribute-name.html"
+            }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.html"
+        },
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.html"
+        }
+      ]
+    }
+  }
+}

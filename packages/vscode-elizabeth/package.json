@@ -1,8 +1,14 @@
 {
-  "name": "vscode-elizabeth",
-  "displayName": "Elizabeth",
+  "name": "vscode-elizabeth-language-extension",
+  "displayName": "Elizabeth Language Extension",
   "description": "Language support for Elizabeth framework.",
-  "version": "0.0.2",
+  "publisher": "Shinapri",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lizorigin/elizabeth.git"
+  },
+  "version": "0.0.1",
+  "icon": "./assets/icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -33,6 +39,11 @@
       {
         "scopeName": "elizabeth.injections.style",
         "path": "./syntaxes/elizabeth-style.tmLanguage.json",
+        "injectTo": ["source.elizabeth"]
+      },
+      {
+        "scopeName": "elizabeth.injections.tags",
+        "path": "./syntaxes/elizabeth-tags.tmLanguage.json",
         "injectTo": ["source.elizabeth"]
       }
     ]

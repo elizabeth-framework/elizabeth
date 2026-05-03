@@ -320,16 +320,17 @@ function logDevRequest(entry: { method: string; pathname: string; status: number
 }
 
 function shouldLogDevRequest(pathname: string, kind: DevRouteKind): boolean {
-  if (kind === "asset") {
-    return false;
-  }
-
   if (
+    pathname.startsWith("/_elizabeth/") ||
     pathname.startsWith("/@fs/") ||
     pathname.startsWith("/@vite/") ||
     pathname.startsWith("/node_modules/") ||
     pathname === "/favicon.ico"
   ) {
+    return false;
+  }
+
+  if (kind === "asset") {
     return false;
   }
 

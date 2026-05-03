@@ -82,14 +82,27 @@ export {};
             format: true,
         };
 
-        const addMappedText = (sourceStart: number, content: string) => {
+        const tagCapabilities = {
+            ...capabilities,
+            semantic: false,
+            semanticTokens: false,
+        };
+
+        const htmlCapabilities = {
+            ...capabilities,
+            verification: false,
+            semantic: true,
+            semanticTokens: true,
+        };
+
+        const addMappedText = (sourceStart: number, content: string, data = capabilities) => {
             if (!content.length) return;
 
             this.mappings.push({
                 sourceOffsets: [sourceStart],
                 generatedOffsets: [generatedText.length],
                 lengths: [content.length],
-                data: capabilities,
+                data,
             });
 
             generatedText += content;
@@ -140,7 +153,7 @@ export {};
                 sourceOffsets: [nameStart],
                 generatedOffsets: [generatedText.length],
                 lengths: [componentName.length],
-                data: capabilities,
+                data: tagCapabilities,
             });
 
             generatedText += componentName;
@@ -156,7 +169,7 @@ export {};
                 generatedText += 'return (<>';
 
                 const html = body.substring(firstHtmlMatch.index);
-                addMappedText(startTagEndIndex + firstHtmlMatch.index, html);
+                addMappedText(startTagEndIndex + firstHtmlMatch.index, html, htmlCapabilities);
 
                 generatedText += '</>);';
             } else {

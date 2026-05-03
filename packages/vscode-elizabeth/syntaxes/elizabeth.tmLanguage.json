@@ -3,12 +3,108 @@
   "name": "Elizabeth",
   "scopeName": "source.elizabeth",
   "patterns": [
-    {
-      "match": "(?<!\\w)@(public|default|declare|private|client)\\b",
-      "name": "keyword.control.elizabeth"
+    { "include": "#decorators" },
+    { "include": "#component" },
+    { "include": "#elizabeth-block" },
+    { "include": "#elizabeth-tags" },
+    { "include": "source.tsx" }
+  ],
+  "repository": {
+    "decorators": {
+      "patterns": [
+        {
+          "match": "(?<!\\w)@(public|default|declare|private|client)\\b",
+          "name": "keyword.control.elizabeth"
+        }
+      ]
     },
-    {
-      "include": "source.tsx"
+
+    "component": {
+      "patterns": [
+        {
+          "begin": "(<)([A-Z][A-Za-z0-9_:.\\-]*)([^>]*)(>)",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.elizabeth" },
+            "2": { "name": "entity.name.tag.elizabeth" },
+            "3": { "patterns": [{ "include": "#tag-attributes" }] },
+            "4": { "name": "punctuation.definition.tag.end.elizabeth" }
+          },
+          "end": "(</)(\\2)(>)",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.elizabeth" },
+            "2": { "name": "entity.name.tag.elizabeth" },
+            "3": { "name": "punctuation.definition.tag.end.elizabeth" }
+          },
+          "patterns": [
+            { "include": "#decorators" },
+            { "include": "#logic-line" },
+            { "include": "#elizabeth-block" },
+            { "include": "#elizabeth-tags" },
+            { "include": "source.tsx" }
+          ]
+        }
+      ]
+    },
+
+    "elizabeth-block": {
+      "patterns": [
+        {
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.block.begin.elizabeth" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.section.block.end.elizabeth" }
+          },
+          "patterns": [
+            { "include": "#decorators" },
+            { "include": "#logic-line" },
+            { "include": "#elizabeth-block" },
+            { "include": "#elizabeth-tags" },
+            { "include": "source.tsx" }
+          ]
+        }
+      ]
+    },
+
+    "elizabeth-tags": {
+      "patterns": [
+        {
+          "match": "(</?)([A-Za-z][A-Za-z0-9_:.\\-]*)([^>]*)(/?>)",
+          "captures": {
+            "1": { "name": "punctuation.definition.tag.begin.elizabeth" },
+            "2": { "name": "entity.name.tag.elizabeth" },
+            "3": { "patterns": [{ "include": "#tag-attributes" }] },
+            "4": { "name": "punctuation.definition.tag.end.elizabeth" }
+          }
+        }
+      ]
+    },
+
+    "tag-attributes": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_:][A-Za-z0-9_:.-]*)(?=\\s*=)",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.elizabeth" }
+          }
+        },
+        { "include": "source.tsx" }
+      ]
+    },
+    "logic-line": {
+      "patterns": [
+        {
+          "begin": "^\\s*(?=(const|let|var|function|async|await|if|else|for|while|switch|case|return|throw|try|catch|finally|import|export|type|interface|enum|class)\\b)",
+          "end": "$",
+          "patterns": [
+            { "include": "#elizabeth-block" },
+            { "include": "#elizabeth-tags" },
+            { "include": "source.tsx" }
+          ]
+        }
+      ]
     }
-  ]
+  }
 }
