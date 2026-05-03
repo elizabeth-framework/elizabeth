@@ -78,8 +78,8 @@ export async function compileElizabethFile(inputPath: string, options: CompileFi
     }
 
     const source = await Bun.file(filePath).text();
-    const imports = findLizImports(source);
-    const cssImports = findCssModuleImports(source);
+    const imports = findLizImports(source, filePath);
+    const cssImports = findCssModuleImports(source, filePath);
 
     for (const specifier of imports) {
       await compileOne(resolve(dirname(filePath), specifier));
@@ -194,7 +194,7 @@ export async function compileElizabethEndpointFile(inputPath: string, options: C
   }
 
   const source = await Bun.file(normalizedInput).text();
-  const imports = findLizImports(source);
+  const imports = findLizImports(source, normalizedInput);
 
   for (const specifier of imports) {
     await compileElizabethFile(resolve(dirname(normalizedInput), specifier), {
@@ -320,19 +320,24 @@ function rewritePackageImport(statement: string, outputPath: string, root: strin
   });
 }
 
-function findLizImports(source: string): string[] {
-  return findStaticImports(source).filter((specifier) => specifier.endsWith(".liz"));
+function findLizImports(source: string, sourceName = "anonymous.liz"): string[] {
+  return findStaticImports(source, sourceName).filter((specifier) => specifier.endsWith(".liz"));
 }
 
-function findCssModuleImports(source: string): string[] {
-  return findStaticImports(source).filter((specifier) => specifier.endsWith(".module.css"));
+function findCssModuleImports(source: string, sourceName = "anonymous.liz"): string[] {
+  return findStaticImports(source, sourceName).filter((specifier) => specifier.endsWith(".module.css"));
 }
 
-function findStaticImports(source: string): string[] {
+function findStaticImports(source: string, sourceName = "anonymous.liz"): string[] {
   const moduleSource = readTopLevelModuleSource(source);
 
   if (moduleSource.trim().length === 0) {
     return [];
+  }
+
+  const missingDecorator = findMissingComponentDecorator(source, sourceName);
+  if (missingDecorator) {
+    throw new Error(`${missingDecorator.sourceName}:${missingDecorator.line}:${missingDecorator.column}: Expected @declare, @public, @default, or @private before component declaration.`);
   }
 
   const result = parseSync("module.liz.ts", moduleSource, {
@@ -341,10 +346,44 @@ function findStaticImports(source: string): string[] {
   });
 
   if (result.errors.length > 0) {
-    throw new Error(`Invalid import syntax: ${result.errors[0].message}`);
+    const error = result.errors[0];
+    const location = parseModuleSourceLocation(error.codeframe ?? "");
+
+    if (location) {
+      const originalIndex = indexFromLineColumn(source, location.line, location.column);
+      const position = sourcePosition(source, originalIndex);
+      throw new Error(`${sourceName}:${position.line + 1}:${position.column + 1}: Invalid import syntax: ${error.message}`);
+    }
+
+    throw new Error(`Invalid import syntax: ${error.message}`);
   }
 
   return result.module.staticImports.map((entry) => entry.moduleRequest.value);
+}
+
+function findMissingComponentDecorator(source: string, sourceName: string): { sourceName: string; line: number; column: number } | null {
+  let index = 0;
+
+  while (index < source.length) {
+    index = skipImportWhitespaceAndComments(source, index);
+
+    if (/^<([A-Z][A-Za-z0-9_]*)([^>]*)>/.test(source.slice(index))) {
+      const position = sourcePosition(source, index);
+      return {
+        sourceName,
+        line: position.line + 1,
+        column: position.column + 1,
+      };
+    }
+
+    const end = readTopLevelModuleChunkEnd(source, index);
+    if (end <= index) {
+      break;
+    }
+    index = end;
+  }
+
+  return null;
 }
 
 function readTopLevelModuleSource(source: string): string {
@@ -1025,4 +1064,53 @@ async function cleanupGeneratedModuleVariants(currentPath: string, basePath: str
 
     await unlink(path).catch(() => {});
   }));
+}
+
+function sourcePosition(source: string, index: number): { line: number; column: number } {
+  let line = 0;
+  let column = 0;
+
+  for (let i = 0; i < index; i++) {
+    if (source[i] === "\n") {
+      line++;
+      column = 0;
+    } else {
+      column++;
+    }
+  }
+
+  return { line, column };
+}
+
+function parseModuleSourceLocation(codeframe: string): { line: number; column: number } | null {
+  const match = /\[(?:[^:\]]+:)?(\d+):(\d+)\]/.exec(codeframe);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    line: Number(match[1]),
+    column: Number(match[2]),
+  };
+}
+
+function indexFromLineColumn(source: string, line: number, column: number): number {
+  let currentLine = 1;
+  let currentColumn = 1;
+
+  for (let index = 0; index < source.length; index++) {
+    if (currentLine === line && currentColumn === column) {
+      return index;
+    }
+
+    if (source[index] === "\n") {
+      currentLine++;
+      currentColumn = 1;
+    } else {
+      currentColumn++;
+    }
+  }
+
+  return source.length;
 }

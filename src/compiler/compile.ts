@@ -58,6 +58,10 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
     }
 
     if (index < source.length) {
+      if (looksLikeMissingComponentDecorator(source, index)) {
+        throw syntaxError(sourceName, source, index, "Expected @declare, @public, @default, or @private before component declaration.");
+      }
+
       const end = readTopLevelModuleChunkEnd(source, index);
       const statement = source.slice(index, end).trim();
 
@@ -105,6 +109,10 @@ export function compileElizabethEndpoint(source: string, sourceName = "anonymous
     }
 
     if (index < source.length) {
+      if (looksLikeMissingComponentDecorator(source, index)) {
+        throw syntaxError(sourceName, source, index, "Expected @declare, @public, @default, or @private before component declaration.");
+      }
+
       const end = readEndpointTopLevelModuleChunkEnd(source, index);
       const statement = source.slice(index, end).trim();
 
@@ -2111,6 +2119,10 @@ function containsComponentTag(source: string): boolean {
   }
 
   return false;
+}
+
+function looksLikeMissingComponentDecorator(source: string, index: number): boolean {
+  return /^<([A-Z][A-Za-z0-9_]*)([^>]*)>/.test(source.slice(index));
 }
 
 function isIdentifierPart(char: string): boolean {

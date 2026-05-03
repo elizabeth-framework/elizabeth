@@ -12,7 +12,18 @@ connection.onInitialize(params => {
     return server.initialize(
         params,
         createTypeScriptProject(ts, undefined, () => ({
-            languagePlugins: [lizLanguagePlugin]
+            languagePlugins: [lizLanguagePlugin],
+            compilerOptions: {
+                target: ts.ScriptTarget.ESNext,
+                module: ts.ModuleKind.ESNext,
+                moduleResolution: ts.ModuleResolutionKind.Bundler,
+                jsx: ts.JsxEmit.ReactJSX,
+                lib: ['lib.esnext.d.ts', 'lib.dom.d.ts'],
+                allowJs: true,
+                checkJs: true,
+                allowSyntheticDefaultImports: true,
+                esModuleInterop: true,
+            },
         })),
         [
             ...createTypeScriptService(ts),

@@ -39,9 +39,9 @@
   },
   "scripts": {
     "build:client": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/vscode-elizabeth/src/extension.js",
-    "build:server": "tsup ../language-server/src/index.ts --format cjs --out-dir ./out/language-server/src",
+    "build:server": "tsup ../language-server/src/index.ts --format cjs --out-dir ./out/language-server/src && cp ../../node_modules/typescript/lib/lib.*.d.ts ./out/language-server/src/",
     "build": "bun run build:client && bun run build:server",
-    "package": "bun run build && vsce package --allow-missing-repository --no-dependencies"
+    "package": "bun run build && npm exec --package @vscode/vsce -- vsce package --allow-missing-repository --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",

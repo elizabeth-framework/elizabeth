@@ -11,6 +11,7 @@ await testMarkupExpressionErrorLocation();
 await testRuntimeErrorTraceExpressionMapping();
 await testApiRouteBuildIsolation();
 await testApiRouteGlobalScript();
+await testMissingComponentDecoratorError();
 await testStaticBuildClientAssets();
 await testViteGlobalCssBuild();
 
@@ -161,6 +162,21 @@ async function testApiRouteGlobalScript(): Promise<void> {
   });
 
   assert(routes.some((route) => route.path === "/api/hello"), "top-level global script should be accepted in API .liz files");
+}
+
+async function testMissingComponentDecoratorError(): Promise<void> {
+  try {
+    compileElizabeth(`<ShowSomething>
+  <div>Hello</div>
+</ShowSomething>`, "missing-decorator.liz");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    assert(message.includes("Expected @declare, @public, @default, or @private before component declaration."), "missing decorator should produce a targeted error");
+    assert(message.startsWith("missing-decorator.liz:1:1:"), "missing decorator error should point at the component tag");
+    return;
+  }
+
+  throw new Error("Expected missing decorator error.");
 }
 
 async function testStaticBuildClientAssets(): Promise<void> {

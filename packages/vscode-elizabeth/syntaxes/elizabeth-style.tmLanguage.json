@@ -1,29 +1,29 @@
 {
   "scopeName": "elizabeth.injections.style",
-  "injectionSelector": "L:source.elizabeth",
+  "injectionSelector": "L:source.elizabeth - comment.line.double-slash.elizabeth - comment.block.elizabeth",
   "patterns": [
     {
-      "begin": "(<)(style)([^>]*)(>)",
+      "begin": "^(\\s*)(<)(style)([^>]*)(>)",
       "beginCaptures": {
-        "1": {
+        "2": {
           "name": "punctuation.definition.tag.begin.html"
         },
-        "2": {
+        "3": {
           "name": "entity.name.tag.style.html"
         },
-        "4": {
+        "5": {
           "name": "punctuation.definition.tag.end.html"
         }
       },
-      "end": "(</)(style)(>)",
+      "end": "^(\\s*)(</)(style)(>)",
       "endCaptures": {
-        "1": {
+        "2": {
           "name": "punctuation.definition.tag.begin.html"
         },
-        "2": {
+        "3": {
           "name": "entity.name.tag.style.html"
         },
-        "3": {
+        "4": {
           "name": "punctuation.definition.tag.end.html"
         }
       },

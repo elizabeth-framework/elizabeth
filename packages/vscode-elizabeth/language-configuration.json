@@ -9,6 +9,7 @@
     ["(", ")"]
   ],
   "autoClosingPairs": [
+    { "open": "<style>", "close": "</style>" },
     { "open": "{", "close": "}" },
     { "open": "[", "close": "]" },
     { "open": "(", "close": ")" },
@@ -32,6 +33,19 @@
     }
   },
   "onEnterRules": [
+    {
+      "beforeText": "^\\s*<([A-Za-z][\\w.-]*)\\b[^>]*>\\s*$",
+      "afterText": "^\\s*</[A-Za-z][\\w.-]*>\\s*$",
+      "action": {
+        "indent": "indentOutdent"
+      }
+    },
+    {
+      "beforeText": "^\\s*<([A-Za-z][\\w.-]*)\\b[^>]*>\\s*$",
+      "action": {
+        "indent": "indent"
+      }
+    },
     {
       "beforeText": "^\\s*\\/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$",
       "afterText": "^\\s*\\*\\/$",

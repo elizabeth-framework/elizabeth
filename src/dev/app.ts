@@ -273,7 +273,7 @@ async function renderApiRoute(match: { route: ApiRoute; params: Record<string, s
     return apiRouteBuildFailureResponse(match.route);
   }
 
-  const module = await import(`${pathToFileURL(match.route.outputPath).href}?t=${Date.now()}`);
+  const module = await import(`${pathToFileURL(match.route.outputPath!).href}?t=${Date.now()}`);
   const handler = module[method];
 
   if (typeof handler !== "function") {
@@ -702,31 +702,40 @@ hmr.onmessage = async (event) => {
   if (message.type !== "island") {
     return;
   }
-  ${hasIslands ? `manifest = await fetch("/_elizabeth/client-manifest.json?t=" + Date.now()).then((response) => response.json());
-  const islands = manifest.islands.filter((island) => island.moduleId === message.moduleId);
-  if (islands.length === 0) {
-    location.reload();
-    return;
-  }
-  await import(islandUrl(message.moduleId) + "?t=" + Date.now());
-  const html = await fetch(location.href, {
-    headers: {
-      "x-elizabeth-hmr": "1",
-    },
-  }).then((response) => response.text());
-  const nextDocument = new DOMParser().parseFromString(html, "text/html");
-  for (const island of islands) {
-    const currentNodes = [...document.querySelectorAll(\`el-island[data-elizabeth-client="\${island.name}"]\`)];
-    const freshNodes = [...nextDocument.querySelectorAll(\`el-island[data-elizabeth-client="\${island.name}"]\`)];
-    if (currentNodes.length !== freshNodes.length) {
+  ${hasIslands ? `try {
+    const manifestResponse = await fetch("/_elizabeth/client-manifest.json?t=" + Date.now());
+    if (!manifestResponse.ok) {
       location.reload();
       return;
     }
-    for (const [index, node] of currentNodes.entries()) {
-      const fresh = freshNodes[index].cloneNode(true);
-      node.replaceWith(fresh);
-      registry.get(island.name)?.(fresh);
+    manifest = await manifestResponse.json();
+    const islands = manifest.islands.filter((island) => island.moduleId === message.moduleId);
+    if (islands.length === 0) {
+      location.reload();
+      return;
     }
+    await import(islandUrl(message.moduleId) + "?t=" + Date.now());
+    const html = await fetch(location.href, {
+      headers: {
+        "x-elizabeth-hmr": "1",
+      },
+    }).then((response) => response.text());
+    const nextDocument = new DOMParser().parseFromString(html, "text/html");
+    for (const island of islands) {
+      const currentNodes = [...document.querySelectorAll(\`el-island[data-elizabeth-client="\${island.name}"]\`)];
+      const freshNodes = [...nextDocument.querySelectorAll(\`el-island[data-elizabeth-client="\${island.name}"]\`)];
+      if (currentNodes.length !== freshNodes.length) {
+        location.reload();
+        return;
+      }
+      for (const [index, node] of currentNodes.entries()) {
+        const fresh = freshNodes[index].cloneNode(true);
+        node.replaceWith(fresh);
+        registry.get(island.name)?.(fresh);
+      }
+    }
+  } catch {
+    location.reload();
   }` : "location.reload();"}
 };
 </script>`;

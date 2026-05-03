@@ -9,7 +9,6 @@ This is an early `0.0.x` release. Expect rough edges while the syntax and runtim
 ```bash
 bun create elizabeth app
 cd app
-bun install
 bun run dev
 ```
 

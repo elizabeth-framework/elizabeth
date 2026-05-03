@@ -24,148 +24,162 @@ export class LizVirtualCode implements VirtualCode {
 
     private onSnapshotUpdated() {
         const text = this.sourceSnapshot.getText(0, this.sourceSnapshot.getLength());
-        
-        let generatedText = `
+
+        const jsxTypes = `/// <reference lib="esnext" />
+/// <reference lib="dom" />
 declare global {
-  namespace JSX {
+namespace JSX {
+    type Element = any;
+
     interface IntrinsicElements {
-      div: ElizabethHTMLAttributes;
-      span: ElizabethHTMLAttributes;
-      p: ElizabethHTMLAttributes;
-      h1: ElizabethHTMLAttributes;
-      h2: ElizabethHTMLAttributes;
-      h3: ElizabethHTMLAttributes;
-      button: ElizabethHTMLAttributes;
-      input: ElizabethHTMLAttributes;
-      a: ElizabethHTMLAttributes;
-      img: ElizabethHTMLAttributes;
-      [name: string]: ElizabethHTMLAttributes;
+    div: ElizabethHTMLAttributes;
+    span: ElizabethHTMLAttributes;
+    p: ElizabethHTMLAttributes;
+    h1: ElizabethHTMLAttributes;
+    h2: ElizabethHTMLAttributes;
+    h3: ElizabethHTMLAttributes;
+    button: ElizabethHTMLAttributes;
+    input: ElizabethHTMLAttributes;
+    a: ElizabethHTMLAttributes;
+    img: ElizabethHTMLAttributes;
+    code: ElizabethHTMLAttributes;
+    style: ElizabethHTMLAttributes;
+    [name: string]: ElizabethHTMLAttributes;
     }
 
     interface ElizabethHTMLAttributes {
-      class?: string;
-      className?: string;
-      id?: string;
-      style?: any;
-      href?: string;
-      src?: string;
-      alt?: string;
-      type?: string;
-      value?: any;
-      placeholder?: string;
-      disabled?: boolean;
-      onClick?: any;
-      onInput?: any;
-      onChange?: any;
+    class?: string;
+    className?: string;
+    id?: string;
+    style?: any;
+    href?: string;
+    src?: string;
+    alt?: string;
+    type?: string;
+    value?: any;
+    placeholder?: string;
+    disabled?: boolean;
+    onClick?: any;
+    onInput?: any;
+    onChange?: any;
+    children?: any;
     }
-  }
 }
+}
+export {};
 `;
+
+        let generatedText = jsxTypes;
         this.mappings = [];
 
-        // Replace decorators with spaces to not break offsets
+        const capabilities = {
+            verification: true,
+            completion: true,
+            semanticTokens: true,
+            navigation: true,
+            structure: true,
+            format: true,
+        };
+
+        const addMappedText = (sourceStart: number, content: string) => {
+            if (!content.length) return;
+
+            this.mappings.push({
+                sourceOffsets: [sourceStart],
+                generatedOffsets: [generatedText.length],
+                lengths: [content.length],
+                data: capabilities,
+            });
+
+            generatedText += content;
+        };
+
         let processedText = text;
         const decoratorRegex = /@(public|default|declare|private|client)\b/g;
-        processedText = processedText.replace(decoratorRegex, (match) => ' '.repeat(match.length));
+        processedText = processedText.replace(decoratorRegex, match => ' '.repeat(match.length));
 
-        // Now find the component
-        const componentRegex = /<([A-Z][a-zA-Z0-9_]*)[^>]*>/;
-        const componentMatch = componentRegex.exec(processedText);
-        
-        if (componentMatch) {
-            const componentName = componentMatch[1];
-            const startTagIndex = componentMatch.index;
-            const startTagEndIndex = startTagIndex + componentMatch[0].length;
-            
-            const closeTag = `</${componentName}>`;
-            const closeTagIndex = processedText.lastIndexOf(closeTag);
-            
-            if (closeTagIndex !== -1) {
-                // 1. Text before component
-                const pre = processedText.substring(0, startTagIndex);
-                this.mappings.push({
-                    sourceOffsets: [0], generatedOffsets: [0], lengths: [pre.length],
-                    data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
-                });
-                generatedText += pre;
+        const componentRegex = /<([A-Z][a-zA-Z0-9_]*)\b[^>]*>/g;
+        let cursor = 0;
+        let match: RegExpExecArray | null;
 
-                // 2. The opening tag (replace with function decl)
-                const nameStart = startTagIndex + 1; // after <
-                generatedText += 'function ';
-                this.mappings.push({
-                    sourceOffsets: [nameStart], generatedOffsets: [generatedText.length], lengths: [componentName.length],
-                    data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
-                });
-                generatedText += componentName;
-                generatedText += '() {';
+        while ((match = componentRegex.exec(processedText)) !== null) {
+            const componentName = match[1];
+            const startTagIndex = match.index;
+            const startTagEndIndex = startTagIndex + match[0].length;
 
-                // 3. The body logic
-                const body = processedText.substring(startTagEndIndex, closeTagIndex);
-                const firstHtmlMatch = /<[a-z]/.exec(body);
-                
-                if (firstHtmlMatch) {
-                    const logic = body.substring(0, firstHtmlMatch.index);
-                    this.mappings.push({
-                        sourceOffsets: [startTagEndIndex], generatedOffsets: [generatedText.length], lengths: [logic.length],
-                        data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
-                    });
-                    generatedText += logic;
-
-                    // 4. Inject return (<>
-                    generatedText += 'return (<>';
-
-                    // 5. The HTML body
-                    const html = body.substring(firstHtmlMatch.index);
-                    this.mappings.push({
-                        sourceOffsets: [startTagEndIndex + firstHtmlMatch.index], generatedOffsets: [generatedText.length], lengths: [html.length],
-                        data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
-                    });
-                    generatedText += html;
-
-                    // 6. Close return
-                    generatedText += '</>); }';
-                } else {
-                    this.mappings.push({
-                        sourceOffsets: [startTagEndIndex], generatedOffsets: [generatedText.length], lengths: [body.length],
-                        data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
-                    });
-                    generatedText += body;
-                    generatedText += '}';
-                }
-
-                // 7. Text after component
-                const post = processedText.substring(closeTagIndex + closeTag.length);
-                this.mappings.push({
-                    sourceOffsets: [closeTagIndex + closeTag.length], generatedOffsets: [generatedText.length], lengths: [post.length],
-                    data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
-                });
-                generatedText += post;
-            } else {
-                this.mappings.push({
-                    sourceOffsets: [0], generatedOffsets: [0], lengths: [processedText.length],
-                    data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
-                });
-                generatedText = processedText;
+            if (match[0].endsWith('/>')) {
+                continue;
             }
-        } else {
+
+            const closeTag = `</${componentName}>`;
+            const closeTagIndex = processedText.indexOf(closeTag, startTagEndIndex);
+
+            if (closeTagIndex === -1) {
+                continue;
+            }
+
+            addMappedText(cursor, processedText.substring(cursor, startTagIndex));
+
+            const beforeComponent = text.slice(Math.max(0, startTagIndex - 80), startTagIndex);
+
+            const hasDefault = /@default\b/.test(beforeComponent);
+            const hasPublic = /@public\b/.test(beforeComponent);
+            const hasDeclare = /@declare\b/.test(beforeComponent);
+
+            if (hasDefault) {
+                generatedText += 'export default function ';
+            } else if (hasPublic || hasDeclare) {
+                generatedText += 'export function ';
+            } else {
+                generatedText += 'function ';
+            }
+
+            const nameStart = startTagIndex + 1;
             this.mappings.push({
-                sourceOffsets: [0], generatedOffsets: [0], lengths: [processedText.length],
-                data: { verification: true, completion: true, semanticTokens: true, navigation: true, structure: true, format: true }
+                sourceOffsets: [nameStart],
+                generatedOffsets: [generatedText.length],
+                lengths: [componentName.length],
+                data: capabilities,
             });
-            generatedText = processedText;
+
+            generatedText += componentName;
+            generatedText += '() {';
+
+            const body = processedText.substring(startTagEndIndex, closeTagIndex);
+            const firstHtmlMatch = /<[a-z]/.exec(body);
+
+            if (firstHtmlMatch) {
+                const logic = body.substring(0, firstHtmlMatch.index);
+                addMappedText(startTagEndIndex, logic);
+
+                generatedText += 'return (<>';
+
+                const html = body.substring(firstHtmlMatch.index);
+                addMappedText(startTagEndIndex + firstHtmlMatch.index, html);
+
+                generatedText += '</>);';
+            } else {
+                addMappedText(startTagEndIndex, body);
+            }
+
+            generatedText += '}';
+
+            cursor = closeTagIndex + closeTag.length;
+            componentRegex.lastIndex = cursor;
         }
 
+        addMappedText(cursor, processedText.substring(cursor));
+
         this.embeddedCodes = [];
-        
-        // Extract <style> blocks
-        const styleRegex = /<style>([\s\S]*?)<\/style>/g;
-        let match;
+
+        const styleRegex = /(^[ \t]*<style\b[^>]*>)([\s\S]*?)(^[ \t]*<\/style>)/gm;
+        let styleMatch;
         let styleIndex = 0;
-        
-        while ((match = styleRegex.exec(text)) !== null) {
-            const styleContent = match[1];
-            const startOffset = match.index + '<style>'.length;
-            
+
+        while ((styleMatch = styleRegex.exec(text)) !== null) {
+            const styleContent = styleMatch[2];
+            const startOffset = styleMatch.index + styleMatch[1].length;
+
             this.embeddedCodes.push({
                 id: `style_${styleIndex++}`,
                 languageId: 'css',
@@ -190,17 +204,16 @@ declare global {
                 embeddedCodes: [],
             });
         }
-        
-        // Mask <style> contents in generated TSX so TS doesn't parse CSS
-        const generatedStyleRegex = /<style>([\s\S]*?)<\/style>/g;
-        const finalGeneratedText = generatedText.replace(generatedStyleRegex, (m, p1) => {
-            return `<style>${' '.repeat(p1.length)}</style>`;
-        });
+
+        const finalGeneratedText = generatedText.replace(
+            /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/g,
+            (_full, open, css, close) => `${open}${' '.repeat(css.length)}${close}`
+        );
 
         this.generatedSnapshot = {
             getText: (start, end) => finalGeneratedText.substring(start, end),
             getLength: () => finalGeneratedText.length,
-            getChangeRange: () => undefined
+            getChangeRange: () => undefined,
         };
     }
 }
