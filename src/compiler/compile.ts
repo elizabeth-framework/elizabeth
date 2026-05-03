@@ -58,8 +58,9 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
     }
 
     if (index < source.length) {
-      if (looksLikeMissingComponentDecorator(source, index)) {
-        throw syntaxError(sourceName, source, index, "Expected @declare, @public, @default, or @private before component declaration.");
+      const componentTagName = readTopLevelComponentTagName(source, index)
+      if (componentTagName !== null) {
+        throw syntaxError(sourceName, source, index, `Unexpected top-level component-like ${componentTagName} tag. If this is a component declaration, add @declare, @public, @default, or @private before it.`);
       }
 
       const end = readTopLevelModuleChunkEnd(source, index);
@@ -109,8 +110,14 @@ export function compileElizabethEndpoint(source: string, sourceName = "anonymous
     }
 
     if (index < source.length) {
-      if (looksLikeMissingComponentDecorator(source, index)) {
-        throw syntaxError(sourceName, source, index, "Expected @declare, @public, @default, or @private before component declaration.");
+      const componentTagName = readTopLevelComponentTagName(source, index)
+      if (componentTagName !== null) {
+        throw syntaxError(
+          sourceName,
+          source,
+          index,
+          `Unexpected top-level component-like <${componentTagName}> tag. If this is a component declaration, add @declare, @public, @default, or @private before it.`,
+        );
       }
 
       const end = readEndpointTopLevelModuleChunkEnd(source, index);
@@ -196,6 +203,16 @@ function readTopLevelModuleChunkEnd(source: string, start: number): number {
       parenDepth === 0 &&
       bracketDepth === 0 &&
       isElizabethComponentStart(source, index)
+    ) {
+      return index;
+    }
+
+    if (
+      char === "<" &&
+      braceDepth === 0 &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      readTopLevelComponentTagName(source, index) !== null
     ) {
       return index;
     }
@@ -2121,8 +2138,9 @@ function containsComponentTag(source: string): boolean {
   return false;
 }
 
-function looksLikeMissingComponentDecorator(source: string, index: number): boolean {
-  return /^<([A-Z][A-Za-z0-9_]*)([^>]*)>/.test(source.slice(index));
+function readTopLevelComponentTagName(source: string, index: number): string | null {
+  const match = /^<([A-Z][A-Za-z0-9_]*)(?:\s[^>]*)?\/?>/.exec(source.slice(index));
+  return match?.[1] ?? null;
 }
 
 function isIdentifierPart(char: string): boolean {

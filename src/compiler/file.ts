@@ -3,6 +3,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { parseSync } from "oxc-parser";
 import { compileElizabeth, compileElizabethEndpoint } from "./compile.ts";
 import type { ClientComponent } from "./types.ts";
+import { NONAME } from "node:dns";
 
 export interface CompileFileOptions {
   root: string;
@@ -52,6 +53,11 @@ export function createCompileGraphContext(): CompileGraphContext {
     clientComponents: new Map(),
     cssModules: new Map(),
   };
+}
+
+function readTopLevelComponentTagName(source: string, index: number): string | null {
+  const match = /^<([A-Z][A-Za-z0-9_]*)(?:\s[^>]*)?\/?>/.exec(source.slice(index));
+  return match?.[1] ?? null;
 }
 
 export async function compileElizabethFile(inputPath: string, options: CompileFileOptions): Promise<CompileFileResult> {
@@ -329,15 +335,21 @@ function findCssModuleImports(source: string, sourceName = "anonymous.liz"): str
 }
 
 function findStaticImports(source: string, sourceName = "anonymous.liz"): string[] {
+  
+  const missingDecorator = findMissingComponentDecorator(source, sourceName);
+
+  if (missingDecorator) {
+    throw new Error(
+      `${missingDecorator.sourceName}:${missingDecorator.line}:${missingDecorator.column}: ` +
+      `Unexpected top-level component-like <${missingDecorator.componentName}> tag. ` +
+      `If this is a component declaration, add @declare, @public, @default, or @private before it.`
+    );
+  }
+
   const moduleSource = readTopLevelModuleSource(source);
 
   if (moduleSource.trim().length === 0) {
     return [];
-  }
-
-  const missingDecorator = findMissingComponentDecorator(source, sourceName);
-  if (missingDecorator) {
-    throw new Error(`${missingDecorator.sourceName}:${missingDecorator.line}:${missingDecorator.column}: Expected @declare, @public, @default, or @private before component declaration.`);
   }
 
   const result = parseSync("module.liz.ts", moduleSource, {
@@ -361,18 +373,24 @@ function findStaticImports(source: string, sourceName = "anonymous.liz"): string
   return result.module.staticImports.map((entry) => entry.moduleRequest.value);
 }
 
-function findMissingComponentDecorator(source: string, sourceName: string): { sourceName: string; line: number; column: number } | null {
+function findMissingComponentDecorator(
+  source: string,
+  sourceName: string,
+): { sourceName: string; line: number; column: number; componentName: string } | null {
   let index = 0;
 
   while (index < source.length) {
     index = skipImportWhitespaceAndComments(source, index);
 
-    if (/^<([A-Z][A-Za-z0-9_]*)([^>]*)>/.test(source.slice(index))) {
+    const componentName = readTopLevelComponentTagName(source, index);
+
+    if (componentName !== null) {
       const position = sourcePosition(source, index);
       return {
         sourceName,
         line: position.line + 1,
         column: position.column + 1,
+        componentName,
       };
     }
 
@@ -456,6 +474,16 @@ function readTopLevelModuleChunkEnd(source: string, start: number): number {
       parenDepth === 0 &&
       bracketDepth === 0 &&
       isEndpointMethodStart(source, index)
+    ) {
+      return index;
+    }
+
+    if (
+      char === "<" &&
+      braceDepth === 0 &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      readTopLevelComponentTagName(source, index) !== null
     ) {
       return index;
     }
