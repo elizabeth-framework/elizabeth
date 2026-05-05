@@ -8,7 +8,7 @@ dist/
 .elizabeth/
 .elizabeth-*/
 **/.env
-
+build/
 
 # test
 TODO.md

@@ -1,6 +1,7 @@
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 
 export interface RouteRoot {
   dir: string;
@@ -14,28 +15,31 @@ export interface ElizabethConfig {
 
 type RouteConfigValue = string | string[] | Record<string, string> | undefined;
 
-export async function loadElizabethConfig(root: string): Promise<ElizabethConfig> {
-  const configPath = findConfigPath(root);
-  const userConfig = configPath
-    ? (await import(`${pathToFileURL(configPath).href}?t=${Date.now()}`)).default
-    : {};
+let cachedResult: ElizabethConfig | null = null;
+let cachedMtime = 0;
 
-  return {
+export async function loadElizabethConfig(root: string): Promise<ElizabethConfig> {
+  const configPath = join(root, "elizabeth.config.ts");
+  const s = await stat(configPath);
+  const mtime = s.mtimeMs;
+
+  if (cachedResult && cachedMtime === mtime) {
+    return cachedResult;
+  }
+
+  const userConfig = (
+    await import(`${pathToFileURL(configPath).href}?t=${mtime}`)
+  ).default;
+
+  cachedMtime = mtime;
+  cachedResult = {
     pageRoutes: normalizeRouteRoots(root, userConfig.pageRoutes, { "src/pages": "/" }),
     apiRoutes: normalizeRouteRoots(root, userConfig.apiRoutes, { "src/api": "/api" }),
   };
+
+  return cachedResult;
 }
 
-function findConfigPath(root: string): string | null {
-  for (const name of ["elizabeth.config.ts", "elizabeth.config.js", "elizabeth.config.mjs"]) {
-    const path = resolve(root, name);
-    if (existsSync(path)) {
-      return path;
-    }
-  }
-
-  return null;
-}
 
 function normalizeRouteRoots(root: string, value: RouteConfigValue, fallback: Record<string, string>): RouteRoot[] {
   const entries = routeEntries(value ?? fallback);

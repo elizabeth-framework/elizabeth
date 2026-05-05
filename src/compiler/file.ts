@@ -3,7 +3,6 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { parseSync } from "oxc-parser";
 import { compileElizabeth, compileElizabethEndpoint } from "./compile.ts";
 import type { ClientComponent } from "./types.ts";
-import { NONAME } from "node:dns";
 
 export interface CompileFileOptions {
   root: string;

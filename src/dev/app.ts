@@ -11,6 +11,7 @@ import { buildPageRoutes, matchPageRoute } from "../router/pages.ts";
 import type { PageRouteManifest } from "../router/pages.ts";
 import { renderPageRoute } from "../router/render.ts";
 import { createHmrRuntime } from "./hmr.ts";
+import { performance } from "node:perf_hooks";
 
 export interface ElizabethDevOptions {
   root: string;
