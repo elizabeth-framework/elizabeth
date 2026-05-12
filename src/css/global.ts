@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 export interface GlobalCssBuildOptions {
@@ -18,6 +17,8 @@ export interface ViteDevServerLike {
   close(): Promise<void>;
 }
 
+const viteConfigCache = new Map<string, Promise<string | undefined>>();
+
 export async function importVite(): Promise<ViteLike> {
   const importModule = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>;
   return await importModule("vite").catch((error) => {
@@ -26,7 +27,7 @@ export async function importVite(): Promise<ViteLike> {
 }
 
 export async function defaultTailwindPlugins(root: string): Promise<unknown[]> {
-  if (findViteConfig(root)) {
+  if (await findViteConfig(root)) {
     return [];
   }
 
@@ -44,14 +45,14 @@ export async function buildGlobalCssWithVite(options: GlobalCssBuildOptions): Pr
   const outDir = resolve(options.outDir);
   const cssEntry = resolve(root, "src/styles.css");
 
-  if (!existsSync(cssEntry)) {
+  if (!await isFile(cssEntry)) {
     return [];
   }
 
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
 
-  const config = findViteConfig(root);
+  const config = await findViteConfig(root);
   const vite = await importVite();
 
   await vite.build({
@@ -73,7 +74,7 @@ export async function buildGlobalCssWithVite(options: GlobalCssBuildOptions): Pr
 }
 
 async function findBuiltCssFiles(dir: string, prefix: string): Promise<string[]> {
-  if (!existsSync(dir)) {
+  if (!await isDir(dir)) {
     return [];
   }
 
@@ -101,8 +102,43 @@ function joinPublicPath(left: string, right: string): string {
   return `${left.replace(/^\/+|\/+$/g, "")}/${right.replace(/^\/+/, "")}`;
 }
 
-export function findViteConfig(root: string): string | undefined {
-  return ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.cjs"]
-    .map((name) => resolve(root, name))
-    .find((path) => existsSync(path));
+export async function findViteConfig(root: string): Promise<string | undefined> {
+  const normalizedRoot = resolve(root);
+  let cached = viteConfigCache.get(normalizedRoot);
+
+  if (!cached) {
+    cached = findViteConfigUncached(normalizedRoot);
+    viteConfigCache.set(normalizedRoot, cached);
+  }
+
+  return await cached;
+}
+
+export function clearViteConfigCache(root?: string): void {
+  if (root) {
+    viteConfigCache.delete(resolve(root));
+    return;
+  }
+
+  viteConfigCache.clear();
+}
+
+async function findViteConfigUncached(root: string): Promise<string | undefined> {
+  for (const name of ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.cjs"]) {
+    const path = resolve(root, name);
+
+    if (await isFile(path)) {
+      return path;
+    }
+  }
+
+  return undefined;
+}
+
+async function isFile(path: string): Promise<boolean> {
+  return await stat(path).then((info) => info.isFile()).catch(() => false);
+}
+
+async function isDir(path: string): Promise<boolean> {
+  return await stat(path).then((info) => info.isDirectory()).catch(() => false);
 }

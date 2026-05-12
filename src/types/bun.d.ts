@@ -13,6 +13,8 @@ interface BunServer {
 }
 
 declare const Bun: {
+  nanoseconds(): unknown;
+  sleep(ms: number): Promise<void>;
   readonly argv: string[];
   readonly env: Record<string, string | undefined>;
   file(path: string): BunFile;
@@ -26,7 +28,6 @@ interface ImportMeta {
 declare function setInterval(callback: () => void | Promise<void>, ms: number): unknown;
 
 declare module "node:fs" {
-  export function existsSync(path: string): boolean;
   export function readFileSync(path: string, encoding: "utf8"): string;
 }
 

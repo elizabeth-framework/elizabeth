@@ -3,10 +3,19 @@ import { isNotFoundResult, isRedirectResult, type NotFoundResult, type RedirectR
 import type { PageRouteMatch } from "./pages.ts";
 
 export type RenderRouteResult = string | RedirectResult | NotFoundResult;
+type RenderModule = {
+  default(props?: Record<string, unknown>, ctx?: { params: Record<string, string> }): Promise<RenderRouteResult> | RenderRouteResult;
+};
 
-export async function renderPageRoute(match: PageRouteMatch): Promise<RenderRouteResult> {
+export type RenderModuleCache = Map<string, Promise<RenderModule>>;
+
+export interface RenderPageRouteOptions {
+  moduleCache?: RenderModuleCache;
+}
+
+export async function renderPageRoute(match: PageRouteMatch, options: RenderPageRouteOptions = {}): Promise<RenderRouteResult> {
   const ctx = { params: match.params };
-  const page = await import(pathToFileURL(match.route.outputPath).href);
+  const page = await importRenderModule(match.route.outputPath, options.moduleCache);
   let html = await page.default({}, ctx);
 
   if (isRedirectResult(html) || isNotFoundResult(html)) {
@@ -15,7 +24,7 @@ export async function renderPageRoute(match: PageRouteMatch): Promise<RenderRout
 
   for (let index = match.route.layouts.length - 1; index >= 0; index--) {
     const layout = match.route.layouts[index];
-    const module = await import(pathToFileURL(layout.outputPath).href);
+    const module = await importRenderModule(layout.outputPath, options.moduleCache);
     html = await module.default({
       children: routeBoundary(boundaryKey(layout.sourcePath, match.params, index), html),
     }, ctx);
@@ -26,6 +35,23 @@ export async function renderPageRoute(match: PageRouteMatch): Promise<RenderRout
   }
 
   return dedupeElizabethStyles(html);
+}
+
+async function importRenderModule(path: string, cache?: RenderModuleCache): Promise<RenderModule> {
+  const href = pathToFileURL(path).href;
+
+  if (!cache) {
+    return await import(href) as RenderModule;
+  }
+
+  let pending = cache.get(path);
+
+  if (!pending) {
+    pending = import(href) as Promise<RenderModule>;
+    cache.set(path, pending);
+  }
+
+  return await pending;
 }
 
 function dedupeElizabethStyles(html: string): string {

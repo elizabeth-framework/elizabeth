@@ -141,7 +141,7 @@ async function buildClientAssets(root: string, distDir: string, components: Arra
 
   await vite.build({
     root,
-    configFile: findViteConfig(root) ?? false,
+    configFile: await findViteConfig(root) ?? false,
     plugins: await defaultTailwindPlugins(root),
     build: {
       outDir: islandOutDir,
@@ -213,12 +213,49 @@ const hasIslands = ${JSON.stringify(options.hasIslands)};
 const redirectMarker = Symbol.for("elizabeth.redirect");
 const notFoundMarker = Symbol.for("elizabeth.notFound");
 
-const port = Number(Bun.env.PORT ?? 3000);
+const port = Number(Bun.env.PORT ?? 3712);
 
 Bun.serve({
   port,
   async fetch(request) {
     const url = new URL(request.url);
+    const startedAt = Number(Bun.nanoseconds());
+    let response;
+
+    try {
+      response = await renderRequest(request, url);
+    } catch (error) {
+      console.error(error);
+      response = new Response("Internal Server Error", {
+        status: 500,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+
+    if (shouldLogRequest(url.pathname)) {
+      logRequest({
+        method: request.method.toUpperCase(),
+        pathname: url.pathname,
+        status: response.status,
+        durationNs: Number(Bun.nanoseconds()) - startedAt,
+      });
+    }
+
+    return response;
+  },
+});
+
+console.log(\`
+Elizabeth production server
+
+  Local:   http://localhost:\${port}
+           http://127.0.0.1:\${port}
+\`);
+
+async function renderRequest(request, url) {
+    if (url.pathname.startsWith("/.well-known/appspecific/")) {
+      return new Response(null, { status: 204 });
+    }
 
     if (url.pathname.startsWith("/_elizabeth/")) {
       return serveStatic(url.pathname);
@@ -243,15 +280,7 @@ const apiMatch = matchRoute(apiRoutes, url.pathname);
     }
 
     return renderMatchedRoute(match, 200);
-  },
-});
-
-console.log(\`
-Elizabeth production server
-
-  Local:   http://localhost:\${port}
-           http://127.0.0.1:\${port}
-\`);
+}
 
 async function renderMatchedRoute(match, status) {
   const result = await renderRoute(match);
@@ -575,6 +604,44 @@ function isRedirectResult(value) {
 
 function isNotFoundResult(value) {
   return Boolean(value && typeof value === "object" && value[notFoundMarker] === true);
+}
+
+function logRequest(entry) {
+  const method = color(entry.method.padEnd(6), "\\x1b[36m");
+  const status = color(String(entry.status).padStart(3), statusColor(entry.status));
+  const duration = color(formatDuration(entry.durationNs).padStart(6), "\\x1b[90m");
+  console.log(\`\${method} \${status} \${duration} \${entry.pathname}\`);
+}
+
+function shouldLogRequest(pathname) {
+  return !(
+    pathname.startsWith("/_elizabeth/") ||
+    pathname.startsWith("/.well-known/appspecific/") ||
+    pathname === "/favicon.ico"
+  );
+}
+
+function formatDuration(durationNs) {
+  if (durationNs > 1_000_000) {
+    return \`\${(durationNs / 1_000_000).toFixed(0)}ms\`;
+  }
+
+  if (durationNs > 1_000) {
+    return \`\${(durationNs / 1_000).toFixed(0)}μs\`;
+  }
+
+  return \`\${durationNs.toFixed(0)}ns\`;
+}
+
+function statusColor(status) {
+  if (status >= 500) return "\\x1b[31m";
+  if (status >= 400) return "\\x1b[33m";
+  if (status >= 300) return "\\x1b[36m";
+  return "\\x1b[32m";
+}
+
+function color(value, code) {
+  return \`\${code}\${value}\\x1b[0m\`;
 }
 
 function contentTypeFor(path) {

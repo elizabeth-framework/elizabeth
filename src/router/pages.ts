@@ -1,8 +1,9 @@
 import { readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { compileElizabethFile, createCompileGraphContext, type ClientManifestEntry, type CompileGraphContext, type CssModuleEntry } from "../compiler/file.ts";
 import type { RouteRoot } from "../config.ts";
+import type { ProjectCache } from "../compiler/cache.ts";
+
 
 export interface PageRoute {
   path: string;
@@ -36,20 +37,25 @@ export interface BuildPageRoutesOptions {
   pagesDir?: string;
   pageRoots?: RouteRoot[];
   outDir: string;
+  cache?: ProjectCache;
+  context?: CompileGraphContext;
 }
 
 export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<PageRouteManifest> {
   const pageRoots = options.pageRoots ?? [{ dir: resolve(options.pagesDir!), basePath: "/" }];
-  const context = createCompileGraphContext();
+  const context = options.context ?? createCompileGraphContext();
   const routes: PageRoute[] = [];
   let notFound: PageRoute | null = null;
 
   for (const pageRoot of pageRoots) {
-    if (!existsSync(pageRoot.dir)) {
+    const files = options.cache
+      ? findLizFilesFromCache(options.cache, pageRoot.dir)
+      : await findLizFiles(pageRoot.dir);
+
+    if (files.length === 0) {
       continue;
     }
 
-    const files = await findLizFiles(pageRoot.dir);
     const layoutFiles = new Set(files.filter(isLayoutFile));
     const notFoundPath = findNotFoundFile(files);
     const pageFiles = files.filter((file) => !isLayoutFile(file) && !isNotFoundFile(file));
@@ -186,6 +192,38 @@ async function findLizFiles(dir: string): Promise<string[]> {
 
     if (entry.isFile() && entry.name.endsWith(".liz")) {
       files.push(path);
+    }
+  }
+
+  return files;
+}
+
+function findLizFilesFromCache(cache: ProjectCache, dir: string): string[] {
+  const root = cache.get(dir);
+
+  if (!root?.isDir) {
+    return [];
+  }
+
+  const files: string[] = [];
+  const stack = [dir];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    const meta = cache.get(current);
+
+    if (!meta?.isDir) {
+      continue;
+    }
+
+    for (const file of meta.files) {
+      if (file.endsWith(".liz")) {
+        files.push(file);
+      }
+    }
+
+    for (const childDir of meta.dirs) {
+      stack.push(childDir);
     }
   }
 

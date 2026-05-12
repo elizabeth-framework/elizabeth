@@ -2,6 +2,7 @@ import { parseSync } from "oxc-parser";
 import type {
   ClientEvent,
   ClientAttributeBinding,
+  ClientFunction,
   ClientStateBinding,
   ClientTextBinding,
   CompileResult,
@@ -34,12 +35,16 @@ const componentModifiers = new Set([
 export function compileElizabeth(source: string, sourceName = "anonymous.liz", options: CompileOptions = {}): CompileResult {
   const components: ComponentBlock[] = [];
   const moduleParts: string[] = [];
+  const moduleClientFunctions = findModuleClientFunctions(source, sourceName);
   const clientEvents = new Map<string, ClientEvent[]>();
+  const clientFunctions = new Map<string, ClientFunction[]>();
   const clientStates = new Map<string, ClientStateBinding[]>();
   const clientTextBindings = new Map<string, ClientTextBinding[]>();
   const clientAttrBindings = new Map<string, ClientAttributeBinding[]>();
   const clientMetadata = {
     events: clientEvents,
+    functions: clientFunctions,
+    moduleFunctions: moduleClientFunctions,
     states: clientStates,
     textBindings: clientTextBindings,
     attrBindings: clientAttrBindings,
@@ -84,6 +89,7 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
       .map((component) => ({
         name: component.name,
         exportName: exportNameFor(component),
+        clientFunctions: clientFunctions.get(component.name) ?? [],
         events: clientEvents.get(component.name) ?? [],
         states: clientStates.get(component.name) ?? [],
         textBindings: clientTextBindings.get(component.name) ?? [],
@@ -142,6 +148,8 @@ export function compileElizabethEndpoint(source: string, sourceName = "anonymous
 
 interface ClientMetadataMaps {
   events: Map<string, ClientEvent[]>;
+  functions: Map<string, ClientFunction[]>;
+  moduleFunctions: ClientFunction[];
   states: Map<string, ClientStateBinding[]>;
   textBindings: Map<string, ClientTextBinding[]>;
   attrBindings: Map<string, ClientAttributeBinding[]>;
@@ -370,10 +378,13 @@ function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadata
   const textBindings: ClientTextBinding[] = [];
   const attrBindings: ClientAttributeBinding[] = [];
   const states = component.client ? findClientStates(render.logic) : [];
+  const functionCandidates = component.client
+    ? mergeClientFunctions(clientMetadata.moduleFunctions, findClientFunctions(render.logic))
+    : [];
   let htmlStatements: string;
   try {
     htmlStatements = component.client
-      ? emitClientHtmlStatements(component, markup, "__html", events, textBindings, attrBindings, states)
+      ? emitClientHtmlStatements(component, markup, "__html", events, textBindings, attrBindings, states, functionCandidates)
       : emitMarkupStatements(markup, "__html");
   } catch (error) {
     throw remapComponentError(error, component, renderStart);
@@ -382,6 +393,15 @@ function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadata
   clientMetadata.states.set(component.name, states);
   clientMetadata.textBindings.set(component.name, textBindings);
   clientMetadata.attrBindings.set(component.name, attrBindings);
+  clientMetadata.functions.set(component.name, selectReferencedClientFunctions(
+    functionCandidates,
+    [
+      ...events.map((event) => event.handler),
+      ...states.map((state) => state.initialValue),
+      ...textBindings.map((binding) => binding.expression),
+      ...attrBindings.map((binding) => binding.expression),
+    ],
+  ));
   const propLocals = emitPropLocals(component);
   const logic = [propLocals, render.logic.trim()].filter(Boolean).join("\n");
   const isAsync = containsAwait(logic) || containsAwait(markup) || containsComponentTag(markup);
@@ -411,12 +431,14 @@ function emitClientHtmlStatements(
   textBindings: ClientTextBinding[],
   attrBindings: ClientAttributeBinding[],
   states: ClientStateBinding[],
+  functions: ClientFunction[],
 ): string {
   const options = {
     events,
     textBindings,
     attrBindings,
     stateNames: new Set(states.map((state) => state.name)),
+    functions,
   };
 
   return [
@@ -493,6 +515,7 @@ interface EmitHtmlOptions {
   textBindings?: ClientTextBinding[];
   attrBindings?: ClientAttributeBinding[];
   stateNames?: Set<string>;
+  functions?: ClientFunction[];
   sourceOffset?: number;
 }
 
@@ -1077,20 +1100,141 @@ function emitInterpolatedExpression(expression: string): string {
     return "children";
   }
 
-  return `escapeHtml(${expression})`;
+  return `escapeHtml(${emitRenderableValueExpression(expression)})`;
+}
+
+function emitRenderableValueExpression(expression: string): string {
+  return `((__value) => typeof __value === "function" ? __value() : __value)(${expression})`;
 }
 
 function emitInterpolatedExpressionWithOptions(expression: string, options: EmitHtmlOptions): string {
-  if (!options.textBindings || !expressionReferencesState(expression, options.stateNames)) {
+  const needsClientBinding = expressionNeedsClientBinding(expression, options);
+  if (!options.textBindings || !needsClientBinding) {
     return emitInterpolatedExpression(expression);
   }
 
   const id = options.textBindings.length;
-  options.textBindings.push({ id, expression });
-  return `${JSON.stringify(`<span data-elizabeth-text="${id}">`)} + ${emitInterpolatedExpression(expression)} + ${JSON.stringify("</span>")}`;
+  options.textBindings.push({
+    id,
+    expression,
+    reactive: expressionReferencesState(expression, options.stateNames, options.functions),
+  });
+  const initialHtml = expressionCanRenderOnServer(expression, options.functions) ? emitInterpolatedExpression(expression) : "\"\"";
+  return `${JSON.stringify(`<span data-elizabeth-text="${id}">`)} + ${initialHtml} + ${JSON.stringify("</span>")}`;
 }
 
-function expressionReferencesState(expression: string, stateNames?: Set<string>): boolean {
+function expressionNeedsClientBinding(expression: string, options: EmitHtmlOptions): boolean {
+  return expressionReferencesState(expression, options.stateNames, options.functions) || !expressionCanRenderOnServer(expression, options.functions);
+}
+
+function expressionCanRenderOnServer(expression: string, functions: ClientFunction[] = []): boolean {
+  return !expressionReferencesClientFunction(expression, functions) || expressionReferencesOnlyServerRenderableClientFunctions(expression, functions);
+}
+
+function expressionReferencesClientFunction(expression: string, functions: ClientFunction[] = []): boolean {
+  if (functions.length === 0) {
+    return false;
+  }
+
+  const functionNames = new Set(functions.map((fn) => fn.name));
+  return findReferencedIdentifiersInExpression(expression).some((identifier) => functionNames.has(identifier));
+}
+
+function expressionReferencesOnlyServerRenderableClientFunctions(expression: string, functions: ClientFunction[] = []): boolean {
+  const byName = new Map(functions.map((fn) => [fn.name, fn]));
+  const referenced = findReferencedIdentifiersInExpression(expression)
+    .map((identifier) => byName.get(identifier))
+    .filter((fn): fn is ClientFunction => fn !== undefined);
+
+  return referenced.length > 0 && referenced.every((fn) => isServerRenderableConstantFunction(fn));
+}
+
+function isServerRenderableConstantFunction(fn: ClientFunction): boolean {
+  const parsed = parseSync("client-function.liz.ts", fn.source, {
+    lang: "ts",
+    sourceType: "module",
+  });
+  const declaration = parsed.program.body[0] as unknown as Record<string, unknown> | undefined;
+
+  if (!declaration) {
+    return false;
+  }
+
+  const functionNode = findFunctionNodeForClientFunction(declaration, fn.name);
+  if (!functionNode || functionNode.async === true || functionNode.generator === true || Array.isArray(functionNode.params) && functionNode.params.length > 0) {
+    return false;
+  }
+
+  return functionNodeReturnsLiteral(functionNode);
+}
+
+function findFunctionNodeForClientFunction(declaration: Record<string, unknown>, name: string): Record<string, unknown> | null {
+  if (declaration.type === "FunctionDeclaration") {
+    const id = declaration.id as Record<string, unknown> | null;
+    return id?.name === name ? declaration : null;
+  }
+
+  if (declaration.type !== "VariableDeclaration" || !Array.isArray(declaration.declarations)) {
+    return null;
+  }
+
+  for (const item of declaration.declarations) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const declarator = item as Record<string, unknown>;
+    const id = declarator.id as Record<string, unknown> | null;
+    const init = declarator.init as Record<string, unknown> | null;
+
+    if (
+      id?.name === name &&
+      init &&
+      (init.type === "ArrowFunctionExpression" || init.type === "FunctionExpression")
+    ) {
+      return init;
+    }
+  }
+
+  return null;
+}
+
+function functionNodeReturnsLiteral(node: Record<string, unknown>): boolean {
+  const body = node.body as Record<string, unknown> | null;
+
+  if (!body) {
+    return false;
+  }
+
+  if (body.type !== "BlockStatement") {
+    return isLiteralLikeExpression(body);
+  }
+
+  if (!Array.isArray(body.body) || body.body.length !== 1) {
+    return false;
+  }
+
+  const statement = body.body[0] as Record<string, unknown>;
+  return statement.type === "ReturnStatement" && isLiteralLikeExpression(statement.argument as Record<string, unknown> | null);
+}
+
+function isLiteralLikeExpression(node: Record<string, unknown> | null): boolean {
+  if (!node) {
+    return false;
+  }
+
+  if (node.type === "Literal" || node.type === "TemplateLiteral") {
+    return true;
+  }
+
+  if (node.type === "UnaryExpression") {
+    return isLiteralLikeExpression(node.argument as Record<string, unknown> | null);
+  }
+
+  return false;
+}
+
+function expressionReferencesState(expression: string, stateNames?: Set<string>, functions: ClientFunction[] = []): boolean {
   if (!stateNames || stateNames.size === 0) {
     return false;
   }
@@ -1122,6 +1266,11 @@ function expressionReferencesState(expression: string, stateNames?: Set<string>)
         return true;
       }
 
+      const fn = functions.find((candidate) => candidate.name === match[0]);
+      if (fn && expressionReferencesState(fn.source, stateNames, functions.filter((candidate) => candidate.name !== fn.name))) {
+        return true;
+      }
+
       index += match[0].length;
       continue;
     }
@@ -1130,6 +1279,292 @@ function expressionReferencesState(expression: string, stateNames?: Set<string>)
   }
 
   return false;
+}
+
+function findModuleClientFunctions(source: string, sourceName: string): ClientFunction[] {
+  const functions: ClientFunction[] = [];
+  let index = 0;
+
+  while (index < source.length) {
+    index = skipWhitespace(source, index);
+
+    if (isElizabethComponentStart(source, index)) {
+      index = readComponent(source, index, sourceName).end;
+      continue;
+    }
+
+    if (index < source.length) {
+      const end = readTopLevelModuleChunkEnd(source, index);
+      functions.push(...findClientFunctions(source.slice(index, end)));
+      index = end;
+    }
+  }
+
+  return mergeClientFunctions(functions);
+}
+
+function findClientFunctions(source: string): ClientFunction[] {
+  return mergeClientFunctions([
+    ...findFunctionDeclarations(source),
+    ...findFunctionVariables(source),
+  ]);
+}
+
+function mergeClientFunctions(...groups: ClientFunction[][]): ClientFunction[] {
+  const merged = new Map<string, ClientFunction>();
+
+  for (const group of groups) {
+    for (const fn of group) {
+      merged.set(fn.name, fn);
+    }
+  }
+
+  return [...merged.values()];
+}
+
+function selectReferencedClientFunctions(candidates: ClientFunction[], roots: string[]): ClientFunction[] {
+  const byName = new Map(candidates.map((fn) => [fn.name, fn]));
+  const selected = new Set<string>();
+  const queue = roots.flatMap((expression) => findReferencedIdentifiersInExpression(expression));
+
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    const fn = byName.get(name);
+
+    if (!fn || selected.has(name)) {
+      continue;
+    }
+
+    selected.add(name);
+    queue.push(...findReferencedIdentifiersInModule(fn.source));
+  }
+
+  return candidates.filter((fn) => selected.has(fn.name));
+}
+
+function findReferencedIdentifiersInExpression(expression: string): string[] {
+  return findReferencedIdentifiers(`const __elizabethExpression = (${expression});`);
+}
+
+function findReferencedIdentifiersInModule(source: string): string[] {
+  return findReferencedIdentifiers(source);
+}
+
+function findReferencedIdentifiers(source: string): string[] {
+  const parsed = parseSync("client-expression.liz.ts", source, {
+    lang: "ts",
+    sourceType: "module",
+  });
+  const identifiers = new Set<string>();
+  visitReferencedIdentifiers(parsed.program, null, identifiers);
+  return [...identifiers];
+}
+
+function visitReferencedIdentifiers(node: unknown, parent: unknown, identifiers: Set<string>): void {
+  if (!node || typeof node !== "object") {
+    return;
+  }
+
+  const record = node as Record<string, unknown>;
+
+  if (record.type === "Identifier" && typeof record.name === "string") {
+    if (!isBindingIdentifier(record, parent) && !isStaticPropertyIdentifier(record, parent)) {
+      identifiers.add(record.name);
+    }
+    return;
+  }
+
+  for (const [key, value] of Object.entries(record)) {
+    if (key === "parent" || key === "start" || key === "end" || key === "loc" || key === "range") {
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visitReferencedIdentifiers(item, record, identifiers);
+      }
+      continue;
+    }
+
+    visitReferencedIdentifiers(value, record, identifiers);
+  }
+}
+
+function isBindingIdentifier(node: Record<string, unknown>, parent: unknown): boolean {
+  if (!parent || typeof parent !== "object") {
+    return false;
+  }
+
+  const record = parent as Record<string, unknown>;
+
+  return (
+    (record.type === "VariableDeclarator" && record.id === node) ||
+    ((record.type === "FunctionDeclaration" || record.type === "FunctionExpression") && record.id === node) ||
+    ((record.type === "ImportSpecifier" || record.type === "ImportDefaultSpecifier" || record.type === "ImportNamespaceSpecifier") && record.local === node) ||
+    (Array.isArray(record.params) && record.params.includes(node))
+  );
+}
+
+function isStaticPropertyIdentifier(node: Record<string, unknown>, parent: unknown): boolean {
+  if (!parent || typeof parent !== "object") {
+    return false;
+  }
+
+  const record = parent as Record<string, unknown>;
+
+  return (
+    (record.type === "MemberExpression" && record.property === node && record.computed !== true) ||
+    (record.type === "Property" && record.key === node && record.computed !== true) ||
+    (record.type === "MethodDefinition" && record.key === node && record.computed !== true)
+  );
+}
+
+function findFunctionDeclarations(source: string): ClientFunction[] {
+  const functions: ClientFunction[] = [];
+  const pattern = /\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source)) !== null) {
+    const bodyStart = findFunctionBodyStart(source, pattern.lastIndex);
+    if (bodyStart === -1) {
+      continue;
+    }
+
+    const end = findMatching(source, bodyStart, "{", "}") + 1;
+    functions.push({
+      name: match[1],
+      source: normalizeClientFunctionSource(source.slice(match.index, end)),
+    });
+    pattern.lastIndex = end;
+  }
+
+  return functions;
+}
+
+function findFunctionBodyStart(source: string, start: number): number {
+  let index = start;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipString(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+
+    if (char === "{") {
+      return index;
+    }
+
+    if (char === ";" || char === "\n") {
+      return -1;
+    }
+
+    index++;
+  }
+
+  return -1;
+}
+
+function findFunctionVariables(source: string): ClientFunction[] {
+  const functions: ClientFunction[] = [];
+  const pattern = /\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source)) !== null) {
+    const statementEnd = readClientFunctionStatementEnd(source, match.index);
+    const statement = source.slice(match.index, statementEnd).trim();
+
+    if (isFunctionVariableStatement(statement)) {
+      functions.push({
+        name: match[1],
+        source: normalizeClientFunctionSource(statement.endsWith(";") ? statement : `${statement};`),
+      });
+    }
+
+    pattern.lastIndex = Math.max(statementEnd, pattern.lastIndex);
+  }
+
+  return functions;
+}
+
+function isFunctionVariableStatement(statement: string): boolean {
+  const initializer = statement.slice(statement.indexOf("=") + 1).trim().replace(/;$/, "").trim();
+  return /^(?:async\s+)?function\b/.test(initializer) || isArrowFunctionInitializer(initializer);
+}
+
+function isArrowFunctionInitializer(source: string): boolean {
+  const withoutAsync = source.replace(/^async\s+/, "");
+
+  if (/^[A-Za-z_$][\w$]*\s*=>/.test(withoutAsync)) {
+    return true;
+  }
+
+  if (!withoutAsync.startsWith("(")) {
+    return false;
+  }
+
+  const paramsEnd = findMatching(withoutAsync, 0, "(", ")");
+  const arrowStart = skipWhitespace(withoutAsync, paramsEnd + 1);
+  return withoutAsync.startsWith("=>", arrowStart);
+}
+
+function readClientFunctionStatementEnd(source: string, start: number): number {
+  let index = start;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipString(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+
+    if (char === "(") parenDepth++;
+    else if (char === ")") parenDepth--;
+    else if (char === "[") bracketDepth++;
+    else if (char === "]") bracketDepth--;
+    else if (char === "{") braceDepth++;
+    else if (char === "}") braceDepth--;
+    else if (char === ";" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      return index + 1;
+    } else if (char === "\n" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      return index;
+    }
+
+    index++;
+  }
+
+  return index;
+}
+
+function normalizeClientFunctionSource(source: string): string {
+  return source.trim().replace(/^export\s+/, "");
 }
 
 function findClientStates(logic: string): ClientStateBinding[] {
@@ -1244,13 +1679,18 @@ function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}):
 
     if (isBooleanHtmlAttribute(name)) {
       emitAttributeBindingMarker(parts, name, attribute.value ?? "", true, options);
-      parts.push(`(${attribute.value} ? ${JSON.stringify(` ${name}`)} : "")`);
+      if (expressionCanRenderOnServer(attribute.value ?? "", options.functions)) {
+        parts.push(`(${emitRenderableValueExpression(attribute.value ?? "")} ? ${JSON.stringify(` ${name}`)} : "")`);
+      }
       continue;
     }
 
     emitAttributeBindingMarker(parts, name, attribute.value ?? "", false, options);
+    if (!expressionCanRenderOnServer(attribute.value ?? "", options.functions)) {
+      continue;
+    }
     parts.push(JSON.stringify(` ${name}="`));
-    parts.push(`escapeAttribute(${attribute.value})`);
+    parts.push(`escapeAttribute(${emitRenderableValueExpression(attribute.value ?? "")})`);
     parts.push(JSON.stringify("\""));
   }
 
@@ -1265,7 +1705,10 @@ function emitAttributeBindingMarker(
   isBoolean: boolean,
   options: EmitHtmlOptions,
 ): void {
-  if (!options.attrBindings || !expressionReferencesState(expression, options.stateNames)) {
+  if (
+    !options.attrBindings ||
+    !expressionNeedsClientBinding(expression, options)
+  ) {
     return;
   }
 
@@ -1275,6 +1718,7 @@ function emitAttributeBindingMarker(
     name,
     expression,
     boolean: isBoolean,
+    reactive: expressionReferencesState(expression, options.stateNames, options.functions),
   });
   parts.push(JSON.stringify(` data-elizabeth-attr-${id}=""`));
 }

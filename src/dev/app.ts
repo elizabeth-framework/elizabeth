@@ -1,17 +1,17 @@
-import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { defaultTailwindPlugins, findViteConfig, importVite, type ViteDevServerLike } from "../css/global.ts";
-import { loadElizabethConfig } from "../config.ts";
+import { clearViteConfigCache, defaultTailwindPlugins, findViteConfig, importVite, type ViteDevServerLike } from "../css/global.ts";
+import { loadElizabethConfig, type ElizabethConfig } from "../config.ts";
 import { renderDevError } from "./error.ts";
 import { isNotFoundResult, isRedirectResult } from "../route.ts";
 import { buildApiRoutes, describeApiRouteBuildError, matchApiRoute, type ApiRoute } from "../router/api.ts";
 import { buildPageRoutes, matchPageRoute } from "../router/pages.ts";
 import type { PageRouteManifest } from "../router/pages.ts";
-import { renderPageRoute } from "../router/render.ts";
+import { renderPageRoute, type RenderModuleCache } from "../router/render.ts";
 import { createHmrRuntime } from "./hmr.ts";
-import { performance } from "node:perf_hooks";
+import { createProjectContext } from "../compiler/project.ts";
+import { createCompileGraphContext, type CompileGraphContext } from "../compiler/file.ts";
 
 export interface ElizabethDevOptions {
   root: string;
@@ -35,29 +35,42 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
   const outDir = resolve(options.outDir ?? resolve(root, ".elizabeth"));
   let cachedManifest: PageRouteManifest | null = null;
   let cachedApiRoutes: ApiRoute[] | null = null;
+  let cachedConfig: ElizabethConfig | null = null;
+  let routeConflictChecked = false;
   let viteDevServer: Promise<ViteDevServerLike | null> | null = null;
+  let pendingProjectCacheUpdate: Promise<void> | null = null;
+  let pageCompileContext: CompileGraphContext = createCompileGraphContext();
+  let apiCompileContext: CompileGraphContext = createCompileGraphContext();
+  const renderModuleCache: RenderModuleCache = new Map();
+  const apiModuleCache = new Map<string, Promise<Record<string, unknown>>>();
+  const projectContextPromise = createProjectContext(root);
   const hmr = createHmrRuntime({
     root,
     frameworkRoot,
     watchDirs: [
+      resolve(root, "elizabeth.config.ts"),
+      resolve(root, "vite.config.ts"),
+      resolve(root, "vite.config.js"),
+      resolve(root, "vite.config.mjs"),
+      resolve(root, "vite.config.cjs"),
       dirname(pagesDir),
       resolve(frameworkRoot, "src"),
     ],
   });
-  hmr.onChange(() => {
-    cachedManifest = null;
-    cachedApiRoutes = null;
+  hmr.onChange((event) => {
+    pendingProjectCacheUpdate = handleProjectChange(event.type, event.path);
   });
   hmr.start();
 
   return async function handleElizabethDevRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    
     if (url.pathname === "/_elizabeth/hmr") {
       return hmr.handle(request);
     }
 
-    const startedAt = Date.now();
     let result: DevRenderResult;
+    const startedAt = Number(Bun.nanoseconds());
 
     try {
       result = await render(url.pathname, request);
@@ -73,7 +86,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
         method: request.method.toUpperCase(),
         pathname: url.pathname,
         status: result.response.status,
-        durationMs: Date.now() - startedAt,
+        durationMs: Number(Bun.nanoseconds()) - startedAt,
         kind: result.kind,
       });
     }
@@ -82,7 +95,12 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
   };
 
   async function render(pathname: string, request: Request): Promise<DevRenderResult> {
-    if (!existsSync(pagesDir)) {
+
+    if (pathname.startsWith("/.well-known/appspecific/")) {
+      return devResult(new Response(null, { status: 204 }), "asset");
+    }
+
+    if (!await pathExistsInProjectCache(pagesDir, "dir")) {
       return devResult(new Response(`Elizabeth pages directory not found: ${pagesDir}`, {
         status: 500,
         headers: {
@@ -111,7 +129,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     try {
       manifest = await getManifest();
       apiRoutes = await getApiRoutes();
-      assertNoRouteConflicts(manifest.routes.map((route) => ({ path: route.path, methods: ["GET", "HEAD"], sourcePath: route.sourcePath })), apiRoutes);
+      ensureNoRouteConflicts(manifest, apiRoutes);
     } catch (error) {
       return devResult(devErrorResponse(error, pathname), "error");
     }
@@ -126,7 +144,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return devResult(apiRouteBuildFailureResponse(apiMatch.route), "api");
     }
     if (apiMatch && apiMatch.route.methods.includes(method)) {
-      return devResult(await renderApiRoute(apiMatch, method, request), "api");
+      return devResult(await renderApiRoute(apiMatch, method, request, apiModuleCache), "api");
     }
 
     if (apiMatch && !["GET", "HEAD"].includes(method)) {
@@ -151,7 +169,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     let result: Awaited<ReturnType<typeof renderPageRoute>>;
 
     try {
-      result = await renderPageRoute(match);
+      result = await renderPageRoute(match, { moduleCache: renderModuleCache });
     } catch (error) {
       return devResult(devErrorResponse(error, pathname), "error");
     }
@@ -164,10 +182,16 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return devResult(await renderNotFound(manifest.notFound), "page");
     }
 
-    return devResult(htmlResponse(withCssLinks(
-      withDevBootstrap(withGlobalCssBootstrap(result, existsSync(resolve(root, "src/styles.css"))), manifest.clientComponents.length > 0),
+    const hasGlobalCss = await pathExistsInProjectCache(resolve(root, "src/styles.css"), "file");
+    const html = withCssLinks(
+      withGlobalCssBootstrap(result, hasGlobalCss),
       manifest.cssModules.map((module) => module.href),
-    )), "page");
+    );
+    const hmrRefresh = request.headers.get("x-elizabeth-hmr") === "1";
+
+    return devResult(htmlResponse(
+      hmrRefresh ? html : withDevBootstrap(html, manifest.clientComponents.length > 0),
+    ), "page");
   }
 
   async function renderNotFound(route: Awaited<ReturnType<typeof buildPageRoutes>>["notFound"]): Promise<Response> {
@@ -183,7 +207,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     const result = await renderPageRoute({
       route,
       params: {},
-    });
+    }, { moduleCache: renderModuleCache });
 
     if (isRedirectResult(result)) {
       return redirectResponse(result.location, result.status);
@@ -200,33 +224,162 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
   }
 
   async function getManifest(): Promise<PageRouteManifest> {
-    const config = await loadElizabethConfig(root);
-    cachedManifest ??= await buildPageRoutes({
-      root,
-      frameworkRoot,
-      pageRoots: options.pagesDir ? [{ dir: pagesDir, basePath: "/" }] : config.pageRoutes,
-      outDir,
-    });
+    const config = await getConfig();
+    await pendingProjectCacheUpdate;
+    const project = await projectContextPromise;
+
+    if (!cachedManifest) {
+      cachedManifest = await buildPageRoutes({
+        root,
+        frameworkRoot,
+        pageRoots: options.pagesDir ? [{ dir: pagesDir, basePath: "/" }] : config.pageRoutes,
+        outDir,
+        cache: project.cache,
+        context: pageCompileContext,
+      });
+    }
 
     return cachedManifest;
   }
 
+  async function handleProjectChange(eventType: "add" | "addDir" | "change" | "unlink" | "unlinkDir", path: string): Promise<void> {
+    await updateProjectCache(eventType, path);
+    await invalidateForChange(path);
+  }
+
+  async function updateProjectCache(eventType: "add" | "addDir" | "change" | "unlink" | "unlinkDir", path: string): Promise<void> {
+    const project = await projectContextPromise;
+    const normalizedPath = resolve(path);
+
+    if (!isInsideProjectSrc(normalizedPath)) {
+      return;
+    }
+
+    if (eventType === "add") {
+      project.cache.addFile(normalizedPath, dirname(normalizedPath));
+    } else if (eventType === "addDir") {
+      project.cache.addDir(normalizedPath, dirname(normalizedPath));
+    } else if (eventType === "change") {
+      project.cache.markChanged(normalizedPath);
+    } else {
+      project.cache.removePath(normalizedPath);
+    }
+  }
+
+  async function invalidateForChange(path: string): Promise<void> {
+    const normalizedPath = resolve(path);
+    const configPath = resolve(root, "elizabeth.config.ts");
+    const viteConfigPaths = new Set(["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.cjs"].map((name) => resolve(root, name)));
+
+    if (normalizedPath === configPath) {
+      cachedConfig = null;
+      invalidatePages();
+      invalidateApiRoutes();
+      return;
+    }
+
+    if (viteConfigPaths.has(normalizedPath)) {
+      clearViteConfigCache(root);
+      viteDevServer = null;
+      invalidatePages();
+      return;
+    }
+
+    if (normalizedPath.startsWith(`${resolve(frameworkRoot, "src")}/`)) {
+      invalidatePages();
+      invalidateApiRoutes();
+      return;
+    }
+
+    if (!isInsideProjectSrc(normalizedPath)) {
+      return;
+    }
+
+    const config = await getConfig();
+    const pageRoots = options.pagesDir ? [{ dir: pagesDir, basePath: "/" }] : config.pageRoutes;
+    const inPageRoot = pageRoots.some((routeRoot) => isInsideDir(normalizedPath, routeRoot.dir));
+    const inApiRoot = config.apiRoutes.some((routeRoot) => isInsideDir(normalizedPath, routeRoot.dir));
+
+    if (inPageRoot) {
+      invalidatePages();
+    }
+
+    if (inApiRoot) {
+      invalidateApiRoutes();
+    }
+
+    if (!inPageRoot && !inApiRoot) {
+      invalidatePages();
+    }
+  }
+
+  function invalidatePages(): void {
+    cachedManifest = null;
+    routeConflictChecked = false;
+    pageCompileContext = createCompileGraphContext();
+    renderModuleCache.clear();
+  }
+
+  function invalidateApiRoutes(): void {
+    cachedApiRoutes = null;
+    routeConflictChecked = false;
+    apiCompileContext = createCompileGraphContext();
+    apiModuleCache.clear();
+  }
+
+  function isInsideProjectSrc(path: string): boolean {
+    const srcRoot = resolve(root, "src");
+    return path === srcRoot || path.startsWith(`${srcRoot}/`);
+  }
+
+  async function pathExistsInProjectCache(path: string, kind: "file" | "dir"): Promise<boolean> {
+    const project = await projectContextPromise;
+    const meta = project.cache.get(resolve(path));
+
+    return kind === "file" ? meta?.isFile === true : meta?.isDir === true;
+  }
+
+  function isInsideDir(path: string, dir: string): boolean {
+    const normalizedDir = resolve(dir);
+    return path === normalizedDir || path.startsWith(`${normalizedDir}/`);
+  }
+
   async function getApiRoutes(): Promise<ApiRoute[]> {
-    const config = await loadElizabethConfig(root);
-    cachedApiRoutes ??= await buildApiRoutes({
-      root,
-      frameworkRoot,
-      apiRoots: config.apiRoutes,
-      outDir,
-      onError(route, error) {
-        console.warn(describeApiRouteBuildError(route, error));
-        if (error instanceof Error && error.stack) {
-          console.warn(error.stack);
-        }
-      },
-    });
+    const config = await getConfig();
+    const project = await projectContextPromise;
+
+    if (!cachedApiRoutes) {
+      cachedApiRoutes = await buildApiRoutes({
+        root,
+        frameworkRoot,
+        apiRoots: config.apiRoutes,
+        outDir,
+        cache: project.cache,
+        context: apiCompileContext,
+        onError(route, error) {
+          console.warn(describeApiRouteBuildError(route, error));
+          if (error instanceof Error && error.stack) {
+            console.warn(error.stack);
+          }
+        },
+      });
+    }
 
     return cachedApiRoutes;
+  }
+
+  async function getConfig(): Promise<ElizabethConfig> {
+    cachedConfig ??= await loadElizabethConfig(root);
+    return cachedConfig;
+  }
+
+  function ensureNoRouteConflicts(manifest: PageRouteManifest, apiRoutes: ApiRoute[]): void {
+    if (routeConflictChecked) {
+      return;
+    }
+
+    assertNoRouteConflicts(manifest.routes.map((route) => ({ path: route.path, methods: ["GET", "HEAD"], sourcePath: route.sourcePath })), apiRoutes);
+    routeConflictChecked = true;
   }
 
   async function renderViteTransformedModule(pathname: string): Promise<Response> {
@@ -260,7 +413,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
   }
 
   async function getViteDevServer(): Promise<ViteDevServerLike | null> {
-    if (!existsSync(resolve(root, "src/styles.css"))) {
+    if (!await pathExistsInProjectCache(resolve(root, "src/styles.css"), "file")) {
       return null;
     }
 
@@ -269,12 +422,20 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
   }
 }
 
-async function renderApiRoute(match: { route: ApiRoute; params: Record<string, string> }, method: string, request: Request): Promise<Response> {
+async function renderApiRoute(match: { route: ApiRoute; params: Record<string, string> }, method: string, request: Request, moduleCache?: Map<string, Promise<Record<string, unknown>>>): Promise<Response> {
   if (match.route.error) {
     return apiRouteBuildFailureResponse(match.route);
   }
 
-  const module = await import(`${pathToFileURL(match.route.outputPath!).href}?t=${Date.now()}`);
+  const modulePath = match.route.outputPath!;
+  let pending = moduleCache?.get(modulePath);
+
+  if (!pending) {
+    pending = import(pathToFileURL(modulePath).href) as Promise<Record<string, unknown>>;
+    moduleCache?.set(modulePath, pending);
+  }
+
+  const module = await pending;
   const handler = module[method];
 
   if (typeof handler !== "function") {
@@ -315,9 +476,18 @@ function apiRouteBuildFailureResponse(route: ApiRoute): Response {
 function logDevRequest(entry: { method: string; pathname: string; status: number; durationMs: number; kind: DevRouteKind }): void {
   const method = color(entry.method.padEnd(6), "\x1b[36m");
   const status = color(String(entry.status).padStart(3), statusColor(entry.status));
-  const duration = color(`${entry.durationMs}ms`.padStart(5), "\x1b[90m");
 
-  console.log(`${method} ${status} ${duration} ${entry.pathname}`);
+  if(entry.durationMs > 1_000_000){
+    const duration = color(`${(entry.durationMs/1_000_000).toFixed(0)}ms`.padStart(6), "\x1b[90m");
+    console.log(`${method} ${status} ${duration} ${entry.pathname}`);
+  }else if(entry.durationMs > 1_000){
+    const duration = color(`${(entry.durationMs/1_000).toFixed(0)}μs`.padStart(6), "\x1b[90m");
+    console.log(`${method} ${status} ${duration} ${entry.pathname}`);
+  }else{
+    const duration = color(`${(entry.durationMs).toFixed(0)}ns`.padStart(6), "\x1b[90m");
+    console.log(`${method} ${status} ${duration} ${entry.pathname}`);
+  }
+
 }
 
 function shouldLogDevRequest(pathname: string, kind: DevRouteKind): boolean {
@@ -326,6 +496,7 @@ function shouldLogDevRequest(pathname: string, kind: DevRouteKind): boolean {
     pathname.startsWith("/@fs/") ||
     pathname.startsWith("/@vite/") ||
     pathname.startsWith("/node_modules/") ||
+    pathname.startsWith("/.well-known/appspecific/") ||
     pathname === "/favicon.ico"
   ) {
     return false;
@@ -560,7 +731,7 @@ async function createViteDevServer(root: string): Promise<ViteDevServerLike> {
 
   return await vite.createServer({
     root,
-    configFile: findViteConfig(root) ?? false,
+    configFile: await findViteConfig(root) ?? false,
     plugins: await defaultTailwindPlugins(root),
     appType: "custom",
     server: {

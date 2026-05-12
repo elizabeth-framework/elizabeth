@@ -255,28 +255,15 @@ async function writeClientModule(
     render();
   };`;
     }).join("\n");
-    const textUpdates = component.textBindings.map((binding) => {
-      return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(${binding.expression}));`;
+    const clientFunctions = component.clientFunctions.map((fn) => indent(fn.source, 2)).join("\n");
+    const staticTextUpdates = component.textBindings.filter((binding) => !binding.reactive).map((binding) => {
+      return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(__elizabethValue(${binding.expression})));`;
     }).join("\n");
-    const attrUpdates = component.attrBindings.map((binding) => {
-      const selector = JSON.stringify(`[data-elizabeth-attr-${binding.id}]`);
-      const name = JSON.stringify(binding.name);
-
-      if (binding.boolean) {
-        return `    {
-      const element = root.querySelector(${selector});
-      if (element) {
-        if (${binding.expression}) element.setAttribute(${name}, "");
-        else element.removeAttribute(${name});
-      }
-    }`;
-      }
-
-      return `    {
-      const element = root.querySelector(${selector});
-      if (element) element.setAttribute(${name}, String(${binding.expression}));
-    }`;
+    const textUpdates = component.textBindings.filter((binding) => binding.reactive).map((binding) => {
+      return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(__elizabethValue(${binding.expression})));`;
     }).join("\n");
+    const staticAttrUpdates = component.attrBindings.filter((binding) => !binding.reactive).map((binding) => emitClientAttributeUpdate(binding)).join("\n");
+    const attrUpdates = component.attrBindings.filter((binding) => binding.reactive).map((binding) => emitClientAttributeUpdate(binding)).join("\n");
     const listeners = component.events.map((event) => {
       return `  root.querySelector(${JSON.stringify(`[data-elizabeth-event-${event.eventName}="${event.id}"]`)})?.addEventListener(${JSON.stringify(event.eventName)}, (event) => (${event.handler})(event));`;
     }).join("\n");
@@ -284,11 +271,18 @@ async function writeClientModule(
     return `export function ${hydrateName}(root) {
   root.setAttribute("data-elizabeth-hydrated", ${JSON.stringify(component.name)});
 ${stateDeclarations}
+${clientFunctions}
+  const __elizabethValue = (value) => typeof value === "function" ? value() : value;
+  const renderStatic = () => {
+${staticTextUpdates}
+${staticAttrUpdates}
+  };
   const render = () => {
 ${textUpdates}
 ${attrUpdates}
   };
 ${listeners}
+  renderStatic();
   render();
 }
 
@@ -300,6 +294,26 @@ globalThis.__elizabethRegisterIsland?.(${JSON.stringify(component.name)}, ${hydr
 `);
 
   return path;
+}
+
+function emitClientAttributeUpdate(binding: ClientComponent["attrBindings"][number]): string {
+      const selector = JSON.stringify(`[data-elizabeth-attr-${binding.id}]`);
+      const name = JSON.stringify(binding.name);
+
+      if (binding.boolean) {
+        return `    {
+      const element = root.querySelector(${selector});
+      if (element) {
+        if (__elizabethValue(${binding.expression})) element.setAttribute(${name}, "");
+        else element.removeAttribute(${name});
+      }
+    }`;
+      }
+
+      return `    {
+      const element = root.querySelector(${selector});
+      if (element) element.setAttribute(${name}, String(__elizabethValue(${binding.expression})));
+    }`;
 }
 
 async function writeClientManifest(outDir: string, entries: ClientManifestEntry[]): Promise<string> {
@@ -1120,6 +1134,11 @@ function parseModuleSourceLocation(codeframe: string): { line: number; column: n
     line: Number(match[1]),
     column: Number(match[2]),
   };
+}
+
+function indent(source: string, spaces: number): string {
+  const prefix = " ".repeat(spaces);
+  return source.split("\n").map((line) => line.length > 0 ? `${prefix}${line}` : line).join("\n");
 }
 
 function indexFromLineColumn(source: string, line: number, column: number): number {

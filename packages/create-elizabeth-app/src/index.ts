@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 interface CreateOptions {
   targetDir: string;
@@ -42,8 +42,17 @@ async function createApp(options: CreateOptions): Promise<void> {
 
   console.log("");
   console.log("Next:");
-  console.log(`  cd ${options.targetDir}`);
-  console.log("  bun run dev");
+  for (const command of nextCommands(options.targetDir)) {
+    console.log(`  ${command}`);
+  }
+}
+
+function nextCommands(targetDir: string): string[] {
+  if (resolve(process.cwd(), targetDir) === process.cwd()) {
+    return ["bun run dev"];
+  }
+
+  return [`cd ${targetDir}`, "bun run dev"];
 }
 
 async function copyTemplate(source: string, target: string): Promise<void> {
@@ -127,7 +136,7 @@ function parseArgs(args: string[]): CreateOptions {
 
   return {
     targetDir,
-    packageName: packageNameFor(targetDir),
+    packageName: packageNameFor(targetDir, process.cwd()),
     elizabethSpecifier: readOption(args, "--elizabeth") ?? defaultElizabethSpecifier(),
     force: args.includes("--force"),
   };
@@ -144,18 +153,15 @@ function readOption(args: string[], name: string): string | null {
   return index === -1 ? null : args[index + 1] ?? null;
 }
 
-function packageNameFor(targetDir: string): string {
-  return targetDir
-    .split(/[\\/]/)
-    .filter(Boolean)
-    .at(-1)!
+function packageNameFor(targetDir: string, cwd: string): string {
+  return basename(resolve(cwd, targetDir))
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "elizabeth-app";
+    .replace(/^[._-]+|[._-]+$/g, "") || "elizabeth-app";
 }
 
 function defaultElizabethSpecifier(): string {
-  return "npm:@lizorigin/elizabeth@^0.0.2";
+  return "npm:@lizorigin/elizabeth@^0.0.5";
 }
 
 function printHelp(): void {

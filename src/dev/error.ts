@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { escapeHtml } from "../runtime/html.ts";
@@ -250,7 +249,7 @@ function sourceForGeneratedFrame(file: string, line: number, column: number): { 
   const sourceRelative = generatedRelative.replace(/\.liz\.[A-Za-z0-9]+\.ts$/, ".liz");
   const sourceFile = resolve(root, sourceRelative);
 
-  if (!existsSync(sourceFile)) {
+  if (readLines(sourceFile).length === 0) {
     return null;
   }
 

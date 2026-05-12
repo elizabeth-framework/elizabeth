@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { compileElizabethEndpointFile, createCompileGraphContext, type CompileGraphContext } from "../compiler/file.ts";
 import type { RouteRoot } from "../config.ts";
+import type { ProjectCache } from "../compiler/cache.ts";
 
 export interface ApiRoute {
   path: string;
@@ -24,6 +24,7 @@ export interface BuildApiRoutesOptions {
   frameworkRoot?: string;
   apiRoots: RouteRoot[];
   outDir: string;
+  cache?: ProjectCache;
   context?: CompileGraphContext;
   onError?: (route: { path: string; sourcePath: string }, error: unknown) => void;
 }
@@ -38,11 +39,15 @@ export async function buildApiRoutes(options: BuildApiRoutesOptions): Promise<Ap
   const context = options.context ?? createCompileGraphContext();
 
   for (const apiRoot of options.apiRoots) {
-    if (!existsSync(apiRoot.dir)) {
+    const sourcePaths = options.cache
+      ? findApiFilesFromCache(options.cache, apiRoot.dir)
+      : await findApiFiles(apiRoot.dir);
+
+    if (sourcePaths.length === 0) {
       continue;
     }
 
-    for (const sourcePath of await findApiFiles(apiRoot.dir)) {
+    for (const sourcePath of sourcePaths) {
       const path = routePathFor(sourcePath, apiRoot.dir, apiRoot.basePath);
       try {
         const { outputPath, methods } = await compileElizabethEndpointFile(sourcePath, {
@@ -115,6 +120,38 @@ async function findApiFiles(dir: string): Promise<string[]> {
 
     if (entry.isFile() && /\.(?:liz|ts|js)$/.test(entry.name)) {
       files.push(path);
+    }
+  }
+
+  return files;
+}
+
+function findApiFilesFromCache(cache: ProjectCache, dir: string): string[] {
+  const root = cache.get(dir);
+
+  if (!root?.isDir) {
+    return [];
+  }
+
+  const files: string[] = [];
+  const stack = [dir];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    const meta = cache.get(current);
+
+    if (!meta?.isDir) {
+      continue;
+    }
+
+    for (const file of meta.files) {
+      if (/\.(?:liz|ts|js)$/.test(file)) {
+        files.push(file);
+      }
+    }
+
+    for (const childDir of meta.dirs) {
+      stack.push(childDir);
     }
   }
 

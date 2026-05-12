@@ -8,10 +8,16 @@ export interface CompileResult {
 export interface ClientComponent {
   name: string;
   exportName: string | null;
+  clientFunctions: ClientFunction[];
   events: ClientEvent[];
   states: ClientStateBinding[];
   textBindings: ClientTextBinding[];
   attrBindings: ClientAttributeBinding[];
+}
+
+export interface ClientFunction {
+  name: string;
+  source: string;
 }
 
 export interface ClientEvent {
@@ -29,6 +35,7 @@ export interface ClientStateBinding {
 export interface ClientTextBinding {
   id: number;
   expression: string;
+  reactive: boolean;
 }
 
 export interface ClientAttributeBinding {
@@ -36,6 +43,7 @@ export interface ClientAttributeBinding {
   name: string;
   expression: string;
   boolean: boolean;
+  reactive: boolean;
 }
 
 export interface ComponentProp {

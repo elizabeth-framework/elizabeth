@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import chokidar, { type FSWatcher } from "chokidar";
 import { relative, resolve } from "node:path";
 
 export type HmrMessage =
@@ -16,21 +15,29 @@ export interface HmrOptions {
 
 export interface HmrRuntime {
   handle(request: Request): Response;
-  onChange(callback: () => void): void;
+  onChange(callback: (event: HmrChangeEvent) => void): void;
   start(): void;
+  close(): Promise<void>;
 }
 
 type HmrClient = ReadableStreamDefaultController<Uint8Array>;
+export type HmrChangeType = "add" | "addDir" | "change" | "unlink" | "unlinkDir";
+export type HmrChangeEvent = {
+  type: HmrChangeType;
+  path: string;
+  message: HmrMessage | null;
+};
 
 const encoder = new TextEncoder();
 
 export function createHmrRuntime(options: HmrOptions): HmrRuntime {
   const clients = new Set<HmrClient>();
-  const snapshots = new Map<string, number>();
-  const changeCallbacks = new Set<() => void>();
+  const changeCallbacks = new Set<(event: HmrChangeEvent) => void>();
   const root = resolve(options.root);
   const watchDirs = [...new Set(options.watchDirs.map((dir) => resolve(dir)))];
+  const pendingChanges = new Map<string, ReturnType<typeof setTimeout>>();
   let started = false;
+  let watcher: FSWatcher | null = null;
 
   return {
     handle() {
@@ -67,32 +74,61 @@ export function createHmrRuntime(options: HmrOptions): HmrRuntime {
       }
 
       started = true;
-      void scan();
-      const timer = setInterval(scan, 350);
-      (timer as { unref?: () => void }).unref?.();
+      watcher = chokidar.watch(watchDirs, {
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 50,
+          pollInterval: 10,
+        },
+        ignored(path, stats) {
+          const normalized = path.replaceAll("\\", "/");
+
+          if (
+            normalized.includes("/node_modules/") ||
+            normalized.includes("/.elizabeth/") ||
+            normalized.includes("/.git/") ||
+            normalized.includes("/dist/") ||
+            normalized.includes("/build/")
+          ) {
+            return true;
+          }
+
+          return stats?.isFile() === true && !isWatchFile(path);
+        },
+      });
+
+      watcher
+        .on("add", (path) => handleChange("add", path))
+        .on("addDir", (path) => handleChange("addDir", path))
+        .on("change", (path) => handleChange("change", path))
+        .on("unlink", (path) => handleChange("unlink", path))
+        .on("unlinkDir", (path) => handleChange("unlinkDir", path));
+    },
+
+    async close() {
+      await watcher?.close();
+      for (const timer of pendingChanges.values()) {
+        clearTimeout(timer);
+      }
+      pendingChanges.clear();
+      watcher = null;
+      started = false;
     },
   };
 
-  async function scan(): Promise<void> {
-    const files = (await Promise.all(watchDirs.map(listWatchFiles))).flat();
-    const seen = new Set(files);
+  function handleChange(type: HmrChangeType, path: string): void {
+    const key = resolve(path);
+    const previous = pendingChanges.get(key);
 
-    for (const path of files) {
-      const info = await stat(path);
-      const previous = snapshots.get(path);
-      snapshots.set(path, info.mtimeMs);
-
-      if (previous !== undefined && previous !== info.mtimeMs) {
-        broadcast(messageFor(path));
-      }
+    if (previous) {
+      clearTimeout(previous);
     }
 
-    for (const path of snapshots.keys()) {
-      if (!seen.has(path)) {
-        snapshots.delete(path);
-        broadcast(messageFor(path));
-      }
-    }
+    pendingChanges.set(key, setTimeout(() => {
+      pendingChanges.delete(key);
+      const message = type === "addDir" || type === "unlinkDir" ? null : messageFor(path);
+      broadcast({ type, path, message });
+    }, 35));
   }
 
   function messageFor(path: string): HmrMessage {
@@ -120,47 +156,23 @@ export function createHmrRuntime(options: HmrOptions): HmrRuntime {
     };
   }
 
-  function broadcast(message: HmrMessage): void {
+  function broadcast(event: HmrChangeEvent): void {
     for (const callback of changeCallbacks) {
-      callback();
+      callback(event);
+    }
+
+    if (!event.message) {
+      return;
     }
 
     for (const client of clients) {
       try {
-        send(client, message);
+        send(client, event.message);
       } catch {
         clients.delete(client);
       }
     }
   }
-}
-
-async function listWatchFiles(dir: string): Promise<string[]> {
-  if (!existsSync(dir)) {
-    return [];
-  }
-
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    const path = resolve(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === ".elizabeth") {
-        continue;
-      }
-
-      files.push(...await listWatchFiles(path));
-      continue;
-    }
-
-    if (entry.isFile() && isWatchFile(path)) {
-      files.push(path);
-    }
-  }
-
-  return files;
 }
 
 function isWatchFile(path: string): boolean {
