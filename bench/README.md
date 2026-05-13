@@ -1,0 +1,79 @@
+# Elizabeth Benchmarks
+
+This directory is for local performance benchmarking. Keep functional tests in `tests/`.
+
+## Tools
+
+The benchmark runners use `bombardier`.
+
+Install it with Go:
+
+```sh
+go install github.com/codesenberg/bombardier@latest
+```
+
+Then pass the binary path when running:
+
+```sh
+BOMBARDIER=/home/<user>/go/bin/bombardier ...
+```
+
+## Elizabeth-Only Benchmark
+
+Runs the production build of `bench/elizabeth-app` only:
+
+```sh
+BOMBARDIER=/home/<user>/go/bin/bombardier bench/run-bombardier.sh
+```
+
+Configurable environment variables:
+
+```sh
+BOMBARDIER=/home/<user>/go/bin/bombardier \
+DURATION=20s \
+CONNECTIONS=1000 \
+PORT=3811 \
+bench/run-bombardier.sh
+```
+
+Routes:
+
+- `/`
+- `/users/ada`
+- `/plain`
+- `/json`
+
+## Framework Comparison
+
+Runs Elizabeth, native Bun, Elysia, and Hono one at a time on the same port:
+
+```sh
+BOMBARDIER=/home/<user>/go/bin/bombardier bench/run-frameworks.sh
+```
+
+The comparison uses the same route shapes as the Elizabeth-only benchmark.
+
+## Setup
+
+Install comparison dependencies inside `bench/`:
+
+```sh
+cd bench
+bun install
+```
+
+This installs only benchmark dependencies such as Elysia and Hono. It is intentionally separate from the root package dependencies.
+
+## Caveats
+
+Benchmarks are local-machine numbers. Do not compare them directly with published framework benchmark tables unless hardware, Bun version, OS limits, benchmark tool, route implementation, response body size, and connection settings match.
+
+Elizabeth production request logs are disabled by the runners with:
+
+```sh
+ELIZABETH_REQUEST_LOGS=0
+```
+
+This avoids measuring console I/O instead of request handling.
+
+Generated files such as `bench/elizabeth-app/dist/`, `bench/node_modules/`, and `bench/bun.lock` are local benchmark artifacts.

@@ -1,0 +1,12 @@
+{
+  "name": "elizabeth-bench-app",
+  "type": "module",
+  "scripts": {
+    "build": "bun ../../src/cli.ts build",
+    "start": "bun dist/server.js"
+  },
+  "dependencies": {
+    "elizabeth": "file:../..",
+    "vite": "^8.0.10"
+  }
+}

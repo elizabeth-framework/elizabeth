@@ -72,17 +72,14 @@ function routeBoundary(key: string, html: string): string {
 }
 
 function boundaryKey(sourcePath: string, params: Record<string, string>, layoutIndex: number): string {
-  const paramsKey = layoutIndex === 0 ? "" : JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
-  return `layout:${hashString(sourcePath)}:${paramsKey}`;
+  if (layoutIndex === 0) return `layout:${hashString(sourcePath)}:`;
+  let key = "";
+  for (const name in params) key += name + "=" + params[name] + "&";
+  return `layout:${hashString(sourcePath)}:${key}`;
 }
 
 function escapeAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return Bun.escapeHTML(value);
 }
 
 function hashString(value: string): string {

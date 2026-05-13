@@ -1,0 +1,179 @@
+<!doctype html><html lang="en">
+    <head>
+      <title>Elizabeth App</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+        * { box-sizing: border-box; margin: 0; }
+
+        :root {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+          -webkit-font-smoothing: antialiased;
+          color: #e2e8f0;
+        }
+
+        body {
+          height: 100vh;
+          overflow: hidden;
+          background: #07080f;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+        }
+
+        body::before {
+          content: '';
+          position: absolute;
+          width: 500px;
+          height: 500px;
+          background: radial-gradient(circle, rgba(124, 58, 237, 0.08) 0%, transparent 70%);
+          border-radius: 50%;
+          filter: blur(80px);
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          pointer-events: none;
+        }
+      </style>
+    </head>
+    <body>
+      <elizabeth-route-boundary data-elizabeth-boundary="layout:1f10ypu:" style="display: contents"><style data-elizabeth-style="HomePage_k76bsl">
+    .container_k76bsl {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand_k76bsl {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .brand_k76bsl h1 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, #fff 20%, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand_k76bsl p {
+      font-size: 0.8rem;
+      color: #475569;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .hint_k76bsl {
+      font-size: 0.7rem;
+      color: #334155;
+      font-weight: 500;
+    }
+
+    .hint_k76bsl code {
+      color: #7c3aed;
+      background: rgba(124, 58, 237, 0.06);
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+      font-size: 0.65rem;
+    }
+  </style>
+
+  <div class="container_k76bsl">
+    <div class="brand_k76bsl">
+      <h1>Elizabeth</h1>
+      <p>The reactive web framework.</p>
+    </div>
+
+    <el-island data-elizabeth-client="Counter"><style data-elizabeth-style="Counter_1xxr16r">
+    .counter_1xxr16r {
+      width: 280px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 1.25rem;
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      backdrop-filter: blur(12px);
+    }
+
+    .value_1xxr16r {
+      font-size: 5rem;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.04em;
+    }
+
+    .buttons_1xxr16r {
+      display: flex;
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .btn_1xxr16r {
+      flex: 1;
+      padding: 0.7rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border-radius: 0.7rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .btn-up_1xxr16r {
+      background: #7c3aed;
+      border: none;
+      color: white;
+    }
+
+    .btn-up_1xxr16r:hover {
+      background: #6d28d9;
+      transform: translateY(-1px);
+    }
+
+    .btn-up_1xxr16r:active { transform: translateY(0); }
+
+    .btn-down_1xxr16r {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #64748b;
+    }
+
+    .btn-down_1xxr16r:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      color: #94a3b8;
+    }
+
+    .btn-down_1xxr16r:active { transform: scale(0.98); }
+  </style>
+
+  <div class="counter_1xxr16r">
+    <span class="value_1xxr16r"><span data-elizabeth-text="0">0</span></span>
+    <div class="buttons_1xxr16r">
+      <button class="btn_1xxr16r btn-up_1xxr16r" data-elizabeth-event-click="0">
+        Increment
+      </button>
+      <button class="btn_1xxr16r btn-down_1xxr16r" data-elizabeth-event-click="1">
+        Reset
+      </button>
+    </div>
+  </div></el-island>
+
+    <p class="hint_k76bsl">
+      Edit <code>src/pages/index.liz</code> to start
+    </p>
+  </div>

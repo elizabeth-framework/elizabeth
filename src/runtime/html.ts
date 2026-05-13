@@ -5,12 +5,7 @@ export function escapeHtml(value: HtmlChunk): string {
     return "";
   }
 
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return Bun.escapeHTML(String(value));
 }
 
 export function escapeAttribute(value: HtmlChunk): string {

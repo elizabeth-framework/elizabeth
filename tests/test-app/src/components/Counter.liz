@@ -1,0 +1,88 @@
+import { clientState } from "elizabeth/client"
+
+@client
+@public
+<Counter>
+
+  const [count, setCount] = clientState(0);
+
+  <style>
+    .counter {
+      width: 280px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 1.25rem;
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      backdrop-filter: blur(12px);
+    }
+
+    .value {
+      font-size: 5rem;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.04em;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 0.7rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border-radius: 0.7rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .btn-up {
+      background: #7c3aed;
+      border: none;
+      color: white;
+    }
+
+    .btn-up:hover {
+      background: #6d28d9;
+      transform: translateY(-1px);
+    }
+
+    .btn-up:active { transform: translateY(0); }
+
+    .btn-down {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #64748b;
+    }
+
+    .btn-down:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      color: #94a3b8;
+    }
+
+    .btn-down:active { transform: scale(0.98); }
+  </style>
+
+  <div className="counter">
+    <span className="value">{count}</span>
+    <div className="buttons">
+      <button className="btn btn-up" onClick={() => setCount(count + 1)}>
+        Increment
+      </button>
+      <button className="btn btn-down" onClick={() => setCount(0)}>
+        Reset
+      </button>
+    </div>
+  </div>
+</Counter>

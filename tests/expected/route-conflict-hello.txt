@@ -1,0 +1,212 @@
+<!doctype html><html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Elizabeth Error</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #101012;
+        color: #f6f3ee;
+      }
+      main { width: min(1080px, calc(100vw - 40px)); margin: 0 auto; padding: 42px 0 56px; }
+      header { border-bottom: 1px solid #2b2a2a; padding-bottom: 22px; margin-bottom: 22px; }
+      .eyebrow { margin: 0 0 10px; color: #f87171; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.05; letter-spacing: 0; }
+      .route { margin: 14px 0 0; color: #c9c3ba; }
+      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .message {
+        margin: 20px 0;
+        padding: 16px 18px;
+        border: 1px solid #7f1d1d;
+        background: #2a1214;
+        color: #fecaca;
+        border-radius: 8px;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      .primary {
+        display: grid;
+        gap: 12px;
+        margin: 18px 0 24px;
+        padding: 16px 18px;
+        border: 1px solid #3b3a37;
+        background: #181817;
+        border-radius: 8px;
+      }
+      .label { color: #9ca3af; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+      .file { color: #fef3c7; overflow-wrap: anywhere; }
+      .trace { display: grid; gap: 14px; }
+      details {
+        border: 1px solid #30302f;
+        background: #161615;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      summary {
+        cursor: pointer;
+        padding: 13px 15px;
+        color: #e8e2d8;
+      }
+      summary span { color: #a8a29e; }
+      pre {
+        margin: 0;
+        overflow: auto;
+        padding: 6px 0 8px;
+        background: #0c0c0d;
+        border-top: 1px solid #30302f;
+        font-size: 13px;
+        line-height: 1.2;
+      }
+      .line { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 12px; padding: 1px 14px; }
+      .line-number { color: #78716c; text-align: right; user-select: none; }
+      .line.active { background: #3a181a; color: #fee2e2; }
+      .empty { color: #a8a29e; padding: 16px 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Elizabeth Trace</p>
+        <h1>Error</h1>
+        <p class="route">Route <code>/api/hello</code> failed while rendering.</p>
+      </header>
+      <section class="message">Route conflict: GET /api/hello
+- page: <root>/tests/test-app/src/api/hello.ts
+- api: <root>/tests/test-app/src/another-api/hello.ts</section>
+      <section class="primary">
+    <div class="label">First application frame</div>
+    <div class="file">native:7:39</div>
+  </section>
+      <section class="trace">
+        <details open>
+    <summary>processTicksAndRejections <span>native:7:39</span></summary>
+    <pre><span class="line"><span class="line-number"></span><span>No source preview available.</span></span></pre>
+  </details>
+      </section>
+    </main>
+  <script type="module">
+
+const hydrateElizabethAfterSwap = () => {};
+let elizabethNavigationId = 0;
+let elizabethNavigationAbort = null;
+document.addEventListener("click", async (event) => {
+  const link = event.target.closest?.("a[href]");
+  if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return;
+  }
+  if (link.target || link.hasAttribute("download")) {
+    return;
+  }
+  const nextUrl = new URL(link.href, location.href);
+  if (nextUrl.origin !== location.origin || nextUrl.pathname === location.pathname && nextUrl.search === location.search) {
+    return;
+  }
+  const currentBoundary = deepestSharedBoundary(document, document);
+  if (!currentBoundary) {
+    return;
+  }
+  event.preventDefault();
+  const navigationId = ++elizabethNavigationId;
+  elizabethNavigationAbort?.abort();
+  const controller = new AbortController();
+  elizabethNavigationAbort = controller;
+  try {
+    const response = await fetch(nextUrl.href, {
+      signal: controller.signal,
+      headers: {
+        "x-elizabeth-navigation": "1",
+      },
+    });
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const html = await response.text();
+    if (navigationId !== elizabethNavigationId) {
+      return;
+    }
+    const nextDocument = new DOMParser().parseFromString(html, "text/html");
+    const pair = deepestSharedBoundary(document, nextDocument);
+    if (!pair) {
+      location.href = nextUrl.href;
+      return;
+    }
+    const swap = () => {
+      if (navigationId !== elizabethNavigationId) {
+        return;
+      }
+      document.title = nextDocument.title;
+      const fresh = pair.next.cloneNode(true);
+      pair.current.replaceWith(fresh);
+      history.pushState(null, "", nextUrl.href);
+      hydrateElizabethAfterSwap(fresh);
+    };
+    swap();
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === "AbortError") {
+      return;
+    }
+    if (navigationId === elizabethNavigationId) {
+      location.href = nextUrl.href;
+    }
+  } finally {
+    if (navigationId === elizabethNavigationId) {
+      elizabethNavigationAbort = null;
+    }
+  }
+});
+addEventListener("popstate", () => location.reload());
+function deepestSharedBoundary(currentDocument, nextDocument) {
+  const current = [...currentDocument.querySelectorAll("[data-elizabeth-boundary]")];
+  const nextByKey = new Map([...nextDocument.querySelectorAll("[data-elizabeth-boundary]")].map((node) => [node.getAttribute("data-elizabeth-boundary"), node]));
+  for (let index = current.length - 1; index >= 0; index--) {
+    const key = current[index].getAttribute("data-elizabeth-boundary");
+    const next = nextByKey.get(key);
+    if (next) {
+      return { current: current[index], next };
+    }
+  }
+  return null;
+}
+const hmr = new EventSource("/_elizabeth/hmr");
+hmr.onmessage = async (event) => {
+  const message = JSON.parse(event.data);
+  if (message.type === "css") {
+    const html = await fetch(location.href, {
+      headers: {
+        "x-elizabeth-hmr": "1",
+      },
+    }).then((response) => response.text());
+    const nextDocument = new DOMParser().parseFromString(html, "text/html");
+    for (const nextLink of nextDocument.querySelectorAll('link[rel="stylesheet"][href^="/_elizabeth/"]')) {
+      if (!nextLink.getAttribute("href").startsWith("/_elizabeth/css/") && !nextLink.getAttribute("href").startsWith("/_elizabeth/global/")) {
+        continue;
+      }
+      const modulePath = nextLink.getAttribute("href").split("?")[0];
+      const current = document.querySelector(`link[rel="stylesheet"][href^="${modulePath}"]`);
+      if (current) {
+        current.setAttribute("href", nextLink.getAttribute("href"));
+      } else {
+        document.head.append(nextLink.cloneNode(true));
+      }
+    }
+    return;
+  }
+  if (message.type === "reload") {
+    location.reload();
+    return;
+  }
+  if (message.type !== "island") {
+    return;
+  }
+  location.reload();
+};
+</script></body>
+</html>

@@ -138,7 +138,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return devResult(await renderCssModule(pathname, manifest), "asset");
     }
 
-    const method = request.method.toUpperCase();
+    const method = request.method;
     const apiMatch = matchApiRoute(apiRoutes, pathname);
     if (apiMatch && apiMatch.route.error) {
       return devResult(apiRouteBuildFailureResponse(apiMatch.route), "api");
@@ -442,12 +442,14 @@ async function renderApiRoute(match: { route: ApiRoute; params: Record<string, s
     return methodNotAllowedResponse(match.route.methods);
   }
 
-  const result = await handler({
+  const context = {
     request,
     params: match.params,
-    url: new URL(request.url),
     locals: {},
-  });
+    get url() { return new URL(request.url); }
+  };
+
+  const result = await handler(context);
 
   if (result instanceof Response) {
     return result;

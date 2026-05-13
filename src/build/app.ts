@@ -212,36 +212,46 @@ const cssHrefs = ${JSON.stringify([...options.globalCssHrefs, ...options.cssModu
 const hasIslands = ${JSON.stringify(options.hasIslands)};
 const redirectMarker = Symbol.for("elizabeth.redirect");
 const notFoundMarker = Symbol.for("elizabeth.notFound");
+const EMPTY_PARAMS = {};
+const compiledRoutes = routes.map(compileServerRoute);
+const compiledApiRoutes = apiRoutes.map(compileServerRoute);
+const compiledNotFoundRoute = notFoundRoute ? compileServerRoute(notFoundRoute) : null;
+const exactRoutes = exactRouteMap(compiledRoutes);
+const exactApiRoutes = exactRouteMap(compiledApiRoutes);
+const moduleCache = new Map();
+const staticHtmlCache = new Map();
+const cssLinkMarkup = renderCssLinks(cssHrefs);
+const buildBootstrapScript = renderBuildBootstrap(hasIslands);
+const requestLoggingEnabled = Bun.env.ELIZABETH_REQUEST_LOGS !== "0";
+
+await preloadServerModules();
+await preloadStaticHtml();
 
 const port = Number(Bun.env.PORT ?? 3712);
 
 Bun.serve({
   port,
-  async fetch(request) {
-    const url = new URL(request.url);
+  fetch(request) {
+    const pathname = pathnameFromRequestUrl(request.url);
     const startedAt = Number(Bun.nanoseconds());
-    let response;
 
     try {
-      response = await renderRequest(request, url);
+      const response = renderRequest(request, pathname);
+
+      if (response instanceof Promise) {
+        return response
+          .then((resolved) => {
+            logCompletedRequest(request, pathname, resolved, startedAt);
+            return resolved;
+          })
+          .catch((error) => internalErrorResponse(error));
+      }
+
+      logCompletedRequest(request, pathname, response, startedAt);
+      return response;
     } catch (error) {
-      console.error(error);
-      response = new Response("Internal Server Error", {
-        status: 500,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
+      return internalErrorResponse(error);
     }
-
-    if (shouldLogRequest(url.pathname)) {
-      logRequest({
-        method: request.method.toUpperCase(),
-        pathname: url.pathname,
-        status: response.status,
-        durationNs: Number(Bun.nanoseconds()) - startedAt,
-      });
-    }
-
-    return response;
   },
 });
 
@@ -252,29 +262,50 @@ Elizabeth production server
            http://127.0.0.1:\${port}
 \`);
 
-async function renderRequest(request, url) {
-    if (url.pathname.startsWith("/.well-known/appspecific/")) {
+function logCompletedRequest(request, pathname, response, startedAt) {
+  if (requestLoggingEnabled && shouldLogRequest(pathname)) {
+    logRequest({
+      method: request.method.toUpperCase(),
+      pathname,
+      status: response.status,
+      durationNs: Number(Bun.nanoseconds()) - startedAt,
+    });
+  }
+}
+
+function internalErrorResponse(error) {
+  console.error(error);
+  return new Response("Internal Server Error", {
+    status: 500,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}
+
+function renderRequest(request, pathname) {
+    const method = request.method;
+
+    if (pathname.startsWith("/.well-known/appspecific/")) {
       return new Response(null, { status: 204 });
     }
 
-    if (url.pathname.startsWith("/_elizabeth/")) {
-      return serveStatic(url.pathname);
+    if (pathname.startsWith("/_elizabeth/")) {
+      return serveStatic(pathname);
     }
 
-const apiMatch = matchRoute(apiRoutes, url.pathname);
+const apiMatch = matchRoute(compiledApiRoutes, pathname, exactApiRoutes);
     if (apiMatch && apiMatch.route.error) {
       return apiRouteBuildFailureResponse(apiMatch.route);
     }
 
-    if (apiMatch && apiMatch.route.methods.includes(request.method.toUpperCase())) {
-      return renderApiRoute(apiMatch, request);
+    if (apiMatch && apiMatch.route.methods.includes(method)) {
+      return renderApiRoute(apiMatch, request, method);
     }
 
-    if (apiMatch && !["GET", "HEAD"].includes(request.method.toUpperCase())) {
+    if (apiMatch && !["GET", "HEAD"].includes(method)) {
       return methodNotAllowedResponse(apiMatch.route.methods);
     }
 
-    const match = matchRoute(routes, url.pathname);
+    const match = matchRoute(compiledRoutes, pathname, exactRoutes);
     if (!match) {
       return renderNotFound();
     }
@@ -282,9 +313,25 @@ const apiMatch = matchRoute(apiRoutes, url.pathname);
     return renderMatchedRoute(match, 200);
 }
 
-async function renderMatchedRoute(match, status) {
-  const result = await renderRoute(match);
+function renderMatchedRoute(match, status) {
+  if (status === 200 && match.route.static) {
+    const cached = staticHtmlCache.get(match.route.path);
 
+    if (cached) {
+      return htmlResponse(cached, 200);
+    }
+  }
+
+  const result = renderRoute(match);
+
+  if (result instanceof Promise) {
+    return result.then((resolved) => renderRouteResult(resolved, status));
+  }
+
+  return renderRouteResult(result, status);
+}
+
+function renderRouteResult(result, status) {
   if (isRedirectResult(result)) {
     return new Response(null, {
       status: result.status,
@@ -299,26 +346,41 @@ async function renderMatchedRoute(match, status) {
   return htmlResponse(withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), status);
 }
 
-async function renderApiRoute(match, request) {
+function renderApiRoute(match, request, method) {
   if (match.route.error) {
     return apiRouteBuildFailureResponse(match.route);
   }
 
-  const module = await import(new URL(match.route.module, import.meta.url).href);
-  const method = request.method.toUpperCase();
-  const handler = module[method];
+  const module = getServerModule(match.route.module);
+  let handler = match.route.handlers?.[method];
+
+  if (!handler) {
+    handler = module[method];
+    match.route.handlers ??= {};
+    match.route.handlers[method] = handler;
+  }
 
   if (typeof handler !== "function") {
     return methodNotAllowedResponse(match.route.methods);
   }
 
-  const result = await handler({
+  const context = {
     request,
     params: match.params,
-    url: new URL(request.url),
     locals: {},
-  });
+    get url() { return new URL(request.url); }
+  };
 
+  const result = handler(context);
+
+  if (result instanceof Promise) {
+    return result.then(apiRouteResultResponse);
+  }
+
+  return apiRouteResultResponse(result);
+}
+
+function apiRouteResultResponse(result) {
   if (result instanceof Response) {
     return result;
   }
@@ -349,15 +411,24 @@ function methodNotAllowedResponse(methods) {
   });
 }
 
-async function renderNotFound() {
-  if (!notFoundRoute) {
+function renderNotFound() {
+  if (!compiledNotFoundRoute) {
     return new Response("Not found", {
       status: 404,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   }
 
-  const result = await renderRoute({ route: notFoundRoute, params: {} });
+  const result = renderRoute({ route: compiledNotFoundRoute, params: {} });
+
+  if (result instanceof Promise) {
+    return result.then((resolved) => renderNotFoundResult(resolved));
+  }
+
+  return renderNotFoundResult(result);
+}
+
+function renderNotFoundResult(result) {
   if (isRedirectResult(result)) {
     return new Response(null, {
       status: result.status,
@@ -368,46 +439,134 @@ async function renderNotFound() {
   return htmlResponse(isNotFoundResult(result) ? "" : withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), 404);
 }
 
-async function renderRoute(match) {
+function renderRoute(match) {
   const ctx = { params: match.params };
-  const page = await import(new URL(match.route.module, import.meta.url).href);
-  let html = await page.default({}, ctx);
+  const page = getServerModule(match.route.module);
+  const html = page.default({}, ctx);
 
+  if (html instanceof Promise) {
+    return html.then((resolved) => renderRouteLayouts(match, ctx, resolved));
+  }
+
+  return renderRouteLayouts(match, ctx, html);
+}
+
+function renderRouteLayouts(match, ctx, html) {
   if (isRedirectResult(html) || isNotFoundResult(html)) {
     return html;
   }
 
+  let current = html;
+
   for (let index = match.route.layouts.length - 1; index >= 0; index--) {
     const layout = match.route.layouts[index];
-    const module = await import(new URL(layout.module, import.meta.url).href);
-    html = await module.default({
-      children: routeBoundary(boundaryKey(layout.sourcePath, match.params, index), html),
+    const module = getServerModule(layout.module);
+    current = module.default({
+      children: routeBoundary(boundaryKey(layout.hash, match.params, index), current),
     }, ctx);
 
-    if (isRedirectResult(html) || isNotFoundResult(html)) {
-      return html;
+    if (current instanceof Promise) {
+      return current.then((resolved) => renderRemainingRouteLayouts(match, ctx, resolved, index - 1));
+    }
+
+    if (isRedirectResult(current) || isNotFoundResult(current)) {
+      return current;
     }
   }
 
-  return dedupeElizabethStyles(html);
+  return current.includes("data-elizabeth-style=") ? dedupeElizabethStyles(current) : current;
+}
+
+function renderRemainingRouteLayouts(match, ctx, html, startIndex) {
+  if (isRedirectResult(html) || isNotFoundResult(html)) {
+    return html;
+  }
+
+  let current = html;
+
+  for (let index = startIndex; index >= 0; index--) {
+    const layout = match.route.layouts[index];
+    const module = getServerModule(layout.module);
+    current = module.default({
+      children: routeBoundary(boundaryKey(layout.hash, match.params, index), current),
+    }, ctx);
+
+    if (current instanceof Promise) {
+      return current.then((resolved) => renderRemainingRouteLayouts(match, ctx, resolved, index - 1));
+    }
+
+    if (isRedirectResult(current) || isNotFoundResult(current)) {
+      return current;
+    }
+  }
+
+  return current.includes("data-elizabeth-style=") ? dedupeElizabethStyles(current) : current;
+}
+
+async function preloadServerModules() {
+  const specifiers = new Set();
+
+  for (const route of [...compiledRoutes, ...compiledApiRoutes, compiledNotFoundRoute].filter(Boolean)) {
+    specifiers.add(route.module);
+
+    for (const layout of route.layouts ?? []) {
+      specifiers.add(layout.module);
+    }
+  }
+
+  await Promise.all([...specifiers].map(async (specifier) => {
+    moduleCache.set(specifier, await import(new URL(specifier, import.meta.url).href));
+  }));
+}
+
+async function preloadStaticHtml() {
+  await Promise.all(compiledRoutes.filter((route) => route.static).map(async (route) => {
+    const result = await renderRoute({ route, params: {} });
+
+    if (!isRedirectResult(result) && !isNotFoundResult(result)) {
+      staticHtmlCache.set(route.path, withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands));
+    }
+  }));
+}
+
+function getServerModule(specifier) {
+  return moduleCache.get(specifier);
+}
+
+function compileServerRoute(route) {
+  return {
+    ...route,
+    pattern: new RegExp(route.pattern),
+    static: route.paramNames.length === 0,
+    handlers: {},
+  };
+}
+
+function exactRouteMap(routes) {
+  const map = new Map();
+
+  for (const route of routes) {
+    if (route.static) {
+      map.set(route.path, route);
+    }
+  }
+
+  return map;
 }
 
 function routeBoundary(key, html) {
   return \`<elizabeth-route-boundary data-elizabeth-boundary="\${escapeAttribute(key)}" style="display: contents">\${html}</elizabeth-route-boundary>\`;
 }
 
-function boundaryKey(sourcePath, params, layoutIndex) {
-  const paramsKey = layoutIndex === 0 ? "" : JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
-  return \`layout:\${hashString(sourcePath)}:\${paramsKey}\`;
+function boundaryKey(layoutHash, params, layoutIndex) {
+  if (layoutIndex === 0) return \`layout:\${layoutHash}:\`;
+  let key = "";
+  for (const name in params) key += name + "=" + params[name] + "&";
+  return \`layout:\${layoutHash}:\${key}\`;
 }
 
 function escapeAttribute(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return Bun.escapeHTML(String(value));
 }
 
 function hashString(value) {
@@ -418,9 +577,17 @@ function hashString(value) {
   return (hash >>> 0).toString(36);
 }
 
-function matchRoute(routes, pathname) {
+function matchRoute(routes, pathname, exact) {
+  const exactRoute = exact.get(pathname);
+
+  if (exactRoute) {
+    return { route: exactRoute, params: EMPTY_PARAMS };
+  }
+
   for (const route of routes) {
-    const match = new RegExp(route.pattern).exec(pathname);
+    if (route.static) continue;
+
+    const match = route.pattern.exec(pathname);
     if (!match) continue;
 
     const params = {};
@@ -432,6 +599,24 @@ function matchRoute(routes, pathname) {
   }
 
   return null;
+}
+
+function pathnameFromRequestUrl(url) {
+  const protocolIndex = url.indexOf("://");
+  let start = protocolIndex === -1 ? 0 : url.indexOf("/", protocolIndex + 3);
+
+  if (start === -1) {
+    return "/";
+  }
+
+  const query = url.indexOf("?", start);
+  const hash = url.indexOf("#", start);
+  let end = url.length;
+
+  if (query !== -1 && query < end) end = query;
+  if (hash !== -1 && hash < end) end = hash;
+
+  return url.slice(start, end) || "/";
 }
 
 async function serveStatic(pathname) {
@@ -463,20 +648,26 @@ function htmlResponse(html, status) {
 }
 
 function withCssLinks(html, hrefs) {
-  if (hrefs.length === 0) {
+  if (!cssLinkMarkup) {
     return html;
   }
 
-  const links = [...new Set(hrefs)].map((href) => \`<link rel="stylesheet" href="\${href}" />\`).join("");
-
   if (html.includes("</head>")) {
-    return html.replace("</head>", \`\${links}</head>\`);
+    return html.replace("</head>", \`\${cssLinkMarkup}</head>\`);
   }
 
-  return \`\${links}\${html}\`;
+  return \`\${cssLinkMarkup}\${html}\`;
 }
 
-function withBuildBootstrap(html, enabled) {
+function renderCssLinks(hrefs) {
+  return [...new Set(hrefs)].map((href) => \`<link rel="stylesheet" href="\${href}" />\`).join("");
+}
+
+function renderBuildBootstrap(enabled) {
+  if (!enabled) {
+    return "";
+  }
+
   const islandScript = enabled ? \`
 const registry = new Map();
 globalThis.__elizabethRegisterIsland = (name, hydrate) => registry.set(name, hydrate);
@@ -578,6 +769,12 @@ function deepestSharedBoundary(currentDocument, nextDocument) {
 }
 </script>\`;
 
+  return script;
+}
+
+function withBuildBootstrap(html, enabled) {
+  const script = buildBootstrapScript;
+
   if (html.includes("</body>")) {
     return html.replace("</body>", \`\${script}</body>\`);
   }
@@ -665,6 +862,7 @@ function serializeServerRoute(route: PageRoute, distDir: string): object {
     module: toServerImportPath(route.outputPath, distDir),
     layouts: route.layouts.map((layout) => ({
       sourcePath: layout.sourcePath,
+      hash: hashString(layout.sourcePath),
       module: toServerImportPath(layout.outputPath, distDir),
     })),
   };

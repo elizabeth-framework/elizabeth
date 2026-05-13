@@ -1,0 +1,40 @@
+@default
+<NotFoundPage>
+  <style>
+    .not-found {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .not-found h1 {
+      font-size: 5rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: #1e293b;
+      line-height: 1;
+    }
+
+    .not-found p {
+      color: #475569;
+      font-size: 0.85rem;
+    }
+
+    .not-found a {
+      color: #64748b;
+      text-decoration: none;
+      font-size: 0.8rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .not-found a:hover { color: #fff; }
+  </style>
+
+  <div className="not-found">
+    <h1>404</h1>
+    <p>Page not found.</p>
+    <a href="/">Back to home</a>
+  </div>
+</NotFoundPage>

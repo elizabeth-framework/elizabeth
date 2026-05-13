@@ -13,7 +13,6 @@ build/
 # test
 TODO.md
 **/tmp*
-**/test*
 check
 
 # dev 

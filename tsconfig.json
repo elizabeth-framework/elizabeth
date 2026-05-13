@@ -9,6 +9,6 @@
     "types": ["bun"],
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "packages/*/src/**/*.ts", "test/tests.ts"],
+  "include": ["src/**/*.ts", "packages/*/src/**/*.ts", "tests/tests.ts"],
   "exclude": ["node_modules", "dist", ".elizabeth", "packages/*/dist", "packages/*/out", "packages/vscode-elizabeth/out"]
 }
