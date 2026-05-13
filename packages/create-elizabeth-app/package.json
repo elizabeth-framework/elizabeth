@@ -12,7 +12,6 @@
   "files": [
     "bin",
     "src",
-    "template",
-    "assets"
+    "template"
   ]
 }

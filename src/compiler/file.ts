@@ -395,6 +395,11 @@ function findMissingComponentDecorator(
   while (index < source.length) {
     index = skipImportWhitespaceAndComments(source, index);
 
+    if (isEndpointMethodStart(source, index)) {
+      index = readEndpointMethodEnd(source, index);
+      continue;
+    }
+
     const componentName = readTopLevelComponentTagName(source, index);
 
     if (componentName !== null) {

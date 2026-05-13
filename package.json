@@ -12,6 +12,7 @@
     "elizabeth": "bin/elizabeth"
   },
   "files": [
+    "assets",
     "bin",
     "src",
     "README.md"
