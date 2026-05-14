@@ -56,7 +56,8 @@ function normalizeOutput(html: string) {
       /data-elizabeth-boundary="layout:[^"]+"/g,
       'data-elizabeth-boundary="layout:<hash>"',
     )
-    .replaceAll(ROOT, "<root>");
+    .replaceAll(ROOT, "<root>")
+    .replace(/<script type="module">[\s\S]*?<\/script>/g, '<script type="module"></script>');
 }
 
 const NORMAL_CONFIG = `
@@ -181,6 +182,31 @@ test("normal config: missing page should render custom 404 page", async () => {
     expect(response.status).toBe(404);
     expect(normalizeOutput(body)).toContain(normalizeOutput(expected));
   });
+});
+
+test("normal config: src/styles.css should load as global css in dev", async () => {
+  await Bun.write(
+    `${appDir}/elizabeth.config.ts`,
+    NORMAL_CONFIG,
+  );
+  await Bun.write(`${appDir}/src/styles.css`, "body { background: rgb(1, 2, 3); }\n");
+
+  try {
+    await withDevServer(async (baseUrl) => {
+      const page = await fetch(`${baseUrl}/`).then((response) => response.text());
+
+      expect(page).toContain('<link rel="stylesheet" href="/_elizabeth/global/src/styles.css" />');
+
+      const cssResponse = await fetch(`${baseUrl}/_elizabeth/global/src/styles.css`);
+      const css = await cssResponse.text();
+
+      expect(cssResponse.headers.get("content-type")).toContain("text/css");
+      expect(css).toContain("rgb(1, 2, 3)");
+      expect(css).not.toContain("__vite__updateStyle");
+    });
+  } finally {
+    await rm(`${appDir}/src/styles.css`, { force: true });
+  }
 });
 
 test("normal config: unsupported api method should return method not allowed", async () => {

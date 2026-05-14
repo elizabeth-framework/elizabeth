@@ -3,6 +3,7 @@ import type {
   ClientEvent,
   ClientAttributeBinding,
   ClientFunction,
+  ClientHtmlBinding,
   ClientStateBinding,
   ClientTextBinding,
   CompileResult,
@@ -40,6 +41,7 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
   const clientFunctions = new Map<string, ClientFunction[]>();
   const clientStates = new Map<string, ClientStateBinding[]>();
   const clientTextBindings = new Map<string, ClientTextBinding[]>();
+  const clientHtmlBindings = new Map<string, ClientHtmlBinding[]>();
   const clientAttrBindings = new Map<string, ClientAttributeBinding[]>();
   const clientMetadata = {
     events: clientEvents,
@@ -47,6 +49,7 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
     moduleFunctions: moduleClientFunctions,
     states: clientStates,
     textBindings: clientTextBindings,
+    htmlBindings: clientHtmlBindings,
     attrBindings: clientAttrBindings,
   };
   let index = 0;
@@ -57,7 +60,7 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
     if (isElizabethComponentStart(source, index)) {
       const parsed = readComponent(source, index, sourceName);
       components.push(parsed.block);
-      moduleParts.push(emitComponent(parsed.block, clientMetadata));
+      moduleParts.push(emitComponent(parsed.block, clientMetadata, new Map(components.map((component) => [component.name, component]))));
       index = parsed.end;
       continue;
     }
@@ -93,6 +96,7 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
         events: clientEvents.get(component.name) ?? [],
         states: clientStates.get(component.name) ?? [],
         textBindings: clientTextBindings.get(component.name) ?? [],
+        htmlBindings: clientHtmlBindings.get(component.name) ?? [],
         attrBindings: clientAttrBindings.get(component.name) ?? [],
       })),
   };
@@ -152,6 +156,7 @@ interface ClientMetadataMaps {
   moduleFunctions: ClientFunction[];
   states: Map<string, ClientStateBinding[]>;
   textBindings: Map<string, ClientTextBinding[]>;
+  htmlBindings: Map<string, ClientHtmlBinding[]>;
   attrBindings: Map<string, ClientAttributeBinding[]>;
 }
 
@@ -365,7 +370,7 @@ function rewriteTopLevelImports(source: string, options: CompileOptions): string
   return rewritten;
 }
 
-function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadataMaps): string {
+function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadataMaps, componentRegistry = new Map<string, ComponentBlock>()): string {
   const render = splitComponentBody(component.body);
   const renderStart = findRenderMarkupStart(component.body);
   let markup: string;
@@ -376,15 +381,17 @@ function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadata
   }
   const events: ClientEvent[] = [];
   const textBindings: ClientTextBinding[] = [];
+  const htmlBindings: ClientHtmlBinding[] = [];
   const attrBindings: ClientAttributeBinding[] = [];
   const states = component.client ? findClientStates(render.logic) : [];
   const functionCandidates = component.client
     ? mergeClientFunctions(clientMetadata.moduleFunctions, findClientFunctions(render.logic))
     : [];
+  const derivedAliases = component.client ? findClientDerivedAliases(render.logic, states, functionCandidates) : new Map<string, string>();
   let htmlStatements: string;
   try {
     htmlStatements = component.client
-      ? emitClientHtmlStatements(component, markup, "__html", events, textBindings, attrBindings, states, functionCandidates)
+      ? emitClientHtmlStatements(component, markup, "__html", events, textBindings, htmlBindings, attrBindings, states, functionCandidates, componentRegistry, derivedAliases)
       : emitMarkupStatements(markup, "__html");
   } catch (error) {
     throw remapComponentError(error, component, renderStart);
@@ -392,6 +399,7 @@ function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadata
   clientMetadata.events.set(component.name, events);
   clientMetadata.states.set(component.name, states);
   clientMetadata.textBindings.set(component.name, textBindings);
+  clientMetadata.htmlBindings.set(component.name, htmlBindings);
   clientMetadata.attrBindings.set(component.name, attrBindings);
   clientMetadata.functions.set(component.name, selectReferencedClientFunctions(
     functionCandidates,
@@ -399,6 +407,7 @@ function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadata
       ...events.map((event) => event.handler),
       ...states.map((state) => state.initialValue),
       ...textBindings.map((binding) => binding.expression),
+      ...htmlBindings.map((binding) => binding.source),
       ...attrBindings.map((binding) => binding.expression),
     ],
   ));
@@ -429,16 +438,22 @@ function emitClientHtmlStatements(
   target: string,
   events: ClientEvent[],
   textBindings: ClientTextBinding[],
+  htmlBindings: ClientHtmlBinding[],
   attrBindings: ClientAttributeBinding[],
   states: ClientStateBinding[],
   functions: ClientFunction[],
+  componentRegistry: Map<string, ComponentBlock>,
+  derivedAliases: Map<string, string>,
 ): string {
   const options = {
     events,
     textBindings,
+    htmlBindings,
     attrBindings,
     stateNames: new Set(states.map((state) => state.name)),
     functions,
+    componentRegistry,
+    propAliases: derivedAliases,
   };
 
   return [
@@ -513,9 +528,12 @@ function splitComponentBody(body: string): { logic: string; markup: string } {
 interface EmitHtmlOptions {
   events?: ClientEvent[];
   textBindings?: ClientTextBinding[];
+  htmlBindings?: ClientHtmlBinding[];
   attrBindings?: ClientAttributeBinding[];
   stateNames?: Set<string>;
   functions?: ClientFunction[];
+  componentRegistry?: Map<string, ComponentBlock>;
+  propAliases?: Map<string, string>;
   sourceOffset?: number;
 }
 
@@ -573,7 +591,11 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
         statements.push(`${target} += ${emitInterpolatedExpressionWithOptions(expression, options)};`);
       } else {
         try {
-          statements.push(emitScriptBlockStatements(expression, target, withSourceOffset(options, sourceOffset + index + 1)));
+          if (options.htmlBindings && expressionReferencesState(expression, options.stateNames, options.functions, options.propAliases)) {
+            statements.push(`${target} += ${emitHtmlBindingExpression(expression, withSourceOffset(options, sourceOffset + index + 1))};`);
+          } else {
+            statements.push(emitScriptBlockStatements(expression, target, withSourceOffset(options, sourceOffset + index + 1)));
+          }
         } catch (error) {
           if (error instanceof MarkupSyntaxError) {
             throw error;
@@ -624,6 +646,21 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
       if (tag.isComponent && !tag.closing) {
         flushText();
 
+        const inlineComponent = options.componentRegistry?.get(tag.name);
+        if (inlineComponent && !inlineComponent.client) {
+          if (tag.selfClosing) {
+            statements.push(`${target} += ${emitInlineComponentExpression(inlineComponent, tag.attributes, undefined, options)};`);
+            index = tag.end;
+            continue;
+          }
+
+          const close = findComponentClose(markup, tag);
+          const children = emitMarkupAsyncExpression(markup.slice(tag.end, close.start), options);
+          statements.push(`${target} += ${emitInlineComponentExpression(inlineComponent, tag.attributes, children, options)};`);
+          index = close.end;
+          continue;
+        }
+
         if (tag.selfClosing) {
           statements.push(`${target} += await ${tag.name}(${emitPropsObject(tag.attributes)}, ctx);`);
           index = tag.end;
@@ -665,6 +702,84 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
       text = "";
     }
   }
+}
+
+function emitInlineComponentExpression(component: ComponentBlock, attributes: MarkupAttribute[], children: string | undefined, options: EmitHtmlOptions): string {
+  const render = splitComponentBody(component.body);
+  const markup = scopeComponentStyles(render.markup, component.name);
+  const aliases = new Map(options.propAliases);
+
+  for (const prop of component.props) {
+    if (prop.defaultValue !== null) {
+      aliases.set(prop.name, prop.defaultValue);
+    }
+  }
+
+  if (!aliases.has("children")) {
+    aliases.set("children", "\"\"");
+  }
+
+  for (const attribute of attributes) {
+    if (attribute.kind === "boolean") {
+      aliases.set(attribute.name, "true");
+    } else if (attribute.kind === "string") {
+      aliases.set(attribute.name, JSON.stringify(attribute.value ?? ""));
+    } else if (attribute.value === attribute.name) {
+      aliases.delete(attribute.name);
+    } else {
+      aliases.set(attribute.name, attribute.value ?? "");
+    }
+  }
+
+  if (children !== undefined) {
+    aliases.set("children", children);
+  }
+
+  const nestedOptions = {
+    ...options,
+    propAliases: aliases,
+  };
+
+  return `(() => {
+  let __componentHtml = "";
+${indent(render.logic.trim(), 2)}
+${indent(emitMarkupStatements(markup, "__componentHtml", nestedOptions), 2)}
+  return __componentHtml;
+})()`;
+}
+
+function emitHtmlBindingExpression(source: string, options: EmitHtmlOptions): string {
+  if (!options.htmlBindings) {
+    return emitHtmlBlockExpression(source, options);
+  }
+
+  const id = options.htmlBindings.length;
+  const aliasedSource = applyExpressionAliases(source, options);
+  const expression = emitHtmlBlockExpression(aliasedSource, options);
+  options.htmlBindings.push({
+    id,
+    source: aliasedSource,
+    expression,
+    reactive: expressionReferencesState(aliasedSource, options.stateNames, options.functions, options.propAliases),
+  });
+
+  return `${JSON.stringify(`<span data-elizabeth-html="${id}" style="display: contents">`)} + ${expression} + ${JSON.stringify("</span>")}`;
+}
+
+function emitHtmlBlockExpression(source: string, options: EmitHtmlOptions): string {
+  const nestedOptions: EmitHtmlOptions = {
+    ...options,
+    events: undefined,
+    textBindings: undefined,
+    htmlBindings: undefined,
+    attrBindings: undefined,
+  };
+
+  return `(() => {
+  let __elizabethHtml = "";
+${indent(emitScriptBlockStatements(source, "__elizabethHtml", nestedOptions), 2)}
+  return __elizabethHtml;
+})()`;
 }
 
 function emitMarkupAsyncExpression(markup: string, options: EmitHtmlOptions): string {
@@ -821,7 +936,7 @@ function emitScriptBlockStatements(source: string, target: string, options: Emit
       } catch (error) {
         const message = statement.startsWith("#")
           ? `Invalid markup expression {${statement}}. Elizabeth treats \`{...}\` as JavaScript in markup. To render this text, write \`{${JSON.stringify(statement)}}\`.`
-          : error instanceof Error ? error.message : String(error);
+          : `${error instanceof Error ? error.message : String(error)} Near: ${JSON.stringify(statement.slice(0, 120))}`;
         throw new MarkupSyntaxError(message, (options.sourceOffset ?? 0) + index);
       }
       statements.push(statement.endsWith(";") ? statement : `${statement};`);
@@ -1108,6 +1223,8 @@ function emitRenderableValueExpression(expression: string): string {
 }
 
 function emitInterpolatedExpressionWithOptions(expression: string, options: EmitHtmlOptions): string {
+  expression = resolveExpressionAlias(expression, options);
+  expression = applyExpressionAliases(expression, options);
   const needsClientBinding = expressionNeedsClientBinding(expression, options);
   if (!options.textBindings || !needsClientBinding) {
     return emitInterpolatedExpression(expression);
@@ -1125,6 +1242,61 @@ function emitInterpolatedExpressionWithOptions(expression: string, options: Emit
 
 function expressionNeedsClientBinding(expression: string, options: EmitHtmlOptions): boolean {
   return expressionReferencesState(expression, options.stateNames, options.functions) || !expressionCanRenderOnServer(expression, options.functions);
+}
+
+function resolveExpressionAlias(expression: string, options: EmitHtmlOptions): string {
+  const trimmed = expression.trim();
+  return options.propAliases?.get(trimmed) ?? expression;
+}
+
+function applyExpressionAliases(source: string, options: EmitHtmlOptions): string {
+  if (!options.propAliases || options.propAliases.size === 0) {
+    return source;
+  }
+
+  let output = "";
+  let index = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === "\"" || char === "'" || char === "`") {
+      const end = skipString(source, index);
+      output += source.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      const end = skipLineComment(source, index);
+      output += source.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      const end = skipBlockComment(source, index);
+      output += source.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    const match = /^[A-Za-z_$][\w$]*/.exec(source.slice(index));
+    if (match) {
+      const alias = previousSignificantChar(source, index) === "."
+        ? undefined
+        : options.propAliases.get(match[0]);
+      output += alias ? `(${alias})` : match[0];
+      index += match[0].length;
+      continue;
+    }
+
+    output += char;
+    index++;
+  }
+
+  return output;
 }
 
 function expressionCanRenderOnServer(expression: string, functions: ClientFunction[] = []): boolean {
@@ -1234,7 +1406,12 @@ function isLiteralLikeExpression(node: Record<string, unknown> | null): boolean 
   return false;
 }
 
-function expressionReferencesState(expression: string, stateNames?: Set<string>, functions: ClientFunction[] = []): boolean {
+function expressionReferencesState(
+  expression: string,
+  stateNames?: Set<string>,
+  functions: ClientFunction[] = [],
+  propAliases?: Map<string, string>,
+): boolean {
   if (!stateNames || stateNames.size === 0) {
     return false;
   }
@@ -1266,8 +1443,17 @@ function expressionReferencesState(expression: string, stateNames?: Set<string>,
         return true;
       }
 
+      const alias = propAliases?.get(match[0]);
+      if (alias) {
+        const nextAliases = new Map(propAliases);
+        nextAliases.delete(match[0]);
+        if (expressionReferencesState(alias, stateNames, functions, nextAliases)) {
+          return true;
+        }
+      }
+
       const fn = functions.find((candidate) => candidate.name === match[0]);
-      if (fn && expressionReferencesState(fn.source, stateNames, functions.filter((candidate) => candidate.name !== fn.name))) {
+      if (fn && expressionReferencesState(fn.source, stateNames, functions.filter((candidate) => candidate.name !== fn.name), propAliases)) {
         return true;
       }
 
@@ -1619,6 +1805,88 @@ function findClientStateCallees(logic: string): Set<string> {
   return callees;
 }
 
+function findClientDerivedAliases(
+  logic: string,
+  states: ClientStateBinding[],
+  functions: ClientFunction[],
+): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const stateNames = new Set(states.map((state) => state.name));
+  const pattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/g;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    pattern.lastIndex = 0;
+
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(logic)) !== null) {
+      const name = match[1];
+
+      if (aliases.has(name) || stateNames.has(name) || !isTopLevelCodePosition(logic, match.index)) {
+        continue;
+      }
+
+      const expressionStart = pattern.lastIndex;
+      const statementEnd = readScriptStatementEnd(logic, match.index);
+      const expression = logic.slice(expressionStart, logic[statementEnd - 1] === ";" ? statementEnd - 1 : statementEnd).trim();
+
+      if (
+        expression.length > 0 &&
+        !expression.includes("clientState(") &&
+        !/^(?:async\s+)?(?:[A-Za-z_$][\w$]*|\([^)]*\))\s*=>/.test(expression) &&
+        !expression.startsWith("function") &&
+        expressionReferencesState(expression, stateNames, functions, aliases)
+      ) {
+        aliases.set(name, expression);
+        changed = true;
+      }
+
+      pattern.lastIndex = statementEnd;
+    }
+  }
+
+  return aliases;
+}
+
+function isTopLevelCodePosition(source: string, position: number): boolean {
+  let index = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  while (index < position) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipString(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+
+    if (char === "(") parenDepth++;
+    else if (char === ")") parenDepth--;
+    else if (char === "[") bracketDepth++;
+    else if (char === "]") bracketDepth--;
+    else if (char === "{") braceDepth++;
+    else if (char === "}") braceDepth--;
+
+    index++;
+  }
+
+  return parenDepth === 0 && bracketDepth === 0 && braceDepth === 0;
+}
+
 interface MarkupAttribute {
   name: string;
   value: string | null;
@@ -1658,7 +1926,7 @@ function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}):
         options.events.push({
           id,
           eventName,
-          handler: attribute.value ?? "",
+          handler: applyExpressionAliases(resolveExpressionAlias(attribute.value ?? "", options), options),
         });
         parts.push(JSON.stringify(` data-elizabeth-event-${eventName}="${id}"`));
       }
@@ -1666,6 +1934,7 @@ function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}):
     }
 
     const name = normalizeHtmlAttributeName(attribute.name);
+    const value = attribute.value === null ? null : applyExpressionAliases(resolveExpressionAlias(attribute.value, options), options);
 
     if (attribute.kind === "boolean") {
       parts.push(JSON.stringify(` ${name}`));
@@ -1678,19 +1947,19 @@ function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}):
     }
 
     if (isBooleanHtmlAttribute(name)) {
-      emitAttributeBindingMarker(parts, name, attribute.value ?? "", true, options);
-      if (expressionCanRenderOnServer(attribute.value ?? "", options.functions)) {
-        parts.push(`(${emitRenderableValueExpression(attribute.value ?? "")} ? ${JSON.stringify(` ${name}`)} : "")`);
+      emitAttributeBindingMarker(parts, name, value ?? "", true, options);
+      if (expressionCanRenderOnServer(value ?? "", options.functions)) {
+        parts.push(`(${emitRenderableValueExpression(value ?? "")} ? ${JSON.stringify(` ${name}`)} : "")`);
       }
       continue;
     }
 
-    emitAttributeBindingMarker(parts, name, attribute.value ?? "", false, options);
-    if (!expressionCanRenderOnServer(attribute.value ?? "", options.functions)) {
+    emitAttributeBindingMarker(parts, name, value ?? "", false, options);
+    if (!expressionCanRenderOnServer(value ?? "", options.functions)) {
       continue;
     }
     parts.push(JSON.stringify(` ${name}="`));
-    parts.push(`escapeAttribute(${emitRenderableValueExpression(attribute.value ?? "")})`);
+    parts.push(`escapeAttribute(${emitRenderableValueExpression(value ?? "")})`);
     parts.push(JSON.stringify("\""));
   }
 
@@ -2654,7 +2923,11 @@ function containsComponentTag(source: string): boolean {
     const char = source[index];
 
     if (char === "{") {
-      index = findMatching(source, index, "{", "}") + 1;
+      const end = findMatching(source, index, "{", "}");
+      if (containsComponentTag(source.slice(index + 1, end))) {
+        return true;
+      }
+      index = end + 1;
       continue;
     }
 

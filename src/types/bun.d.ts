@@ -18,6 +18,7 @@ declare const Bun: {
   readonly argv: string[];
   readonly env: Record<string, string | undefined>;
   file(path: string): BunFile;
+  escapeHTML(value: string): string;
   serve(options: BunServerOptions): BunServer;
 };
 

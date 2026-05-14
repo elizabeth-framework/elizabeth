@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { parseSync } from "oxc-parser";
 import { compileElizabeth, compileElizabethEndpoint } from "./compile.ts";
@@ -87,11 +87,11 @@ export async function compileElizabethFile(inputPath: string, options: CompileFi
     const cssImports = findCssModuleImports(source, filePath);
 
     for (const specifier of imports) {
-      await compileOne(resolve(dirname(filePath), specifier));
+      await compileOne(resolveAppImportSpecifier(root, filePath, specifier));
     }
 
     for (const specifier of cssImports) {
-      await compileCssModule(resolve(dirname(filePath), specifier));
+      await compileCssModule(resolveAppImportSpecifier(root, filePath, specifier));
     }
 
     const outputBasePath = outputBasePathFor(filePath, root, outDir);
@@ -99,16 +99,7 @@ export async function compileElizabethFile(inputPath: string, options: CompileFi
     const result = compileElizabeth(source, filePath, {
       runtimeImport: `import { escapeHtml, escapeAttribute } from ${JSON.stringify(runtimePath)};`,
       rewriteImport(statement) {
-        return rewritePackageImport(
-          rewriteCssModuleImport(
-            rewriteLizImport(statement, filePath, outputBasePath, context),
-            filePath,
-            outputBasePath,
-            context,
-          ),
-          outputBasePath,
-          frameworkRoot,
-        );
+        return rewriteServerImportStatement(statement, root, filePath, outputBasePath, frameworkRoot, context);
       },
     });
     const outputPath = outputPathFor(filePath, root, outDir, hashString(result.code));
@@ -190,11 +181,12 @@ export async function compileElizabethEndpointFile(inputPath: string, options: C
 
   if (extension === "ts" || extension === "js") {
     const outputPath = endpointOutputPathFor(normalizedInput, root, outDir);
+    const source = await Bun.file(normalizedInput).text();
     await mkdir(dirname(outputPath), { recursive: true });
-    await copyFile(normalizedInput, outputPath);
+    await writeFile(outputPath, rewriteServerModuleImports(source, root, normalizedInput, outputPath, frameworkRoot));
     return {
       outputPath,
-      methods: findEndpointMethodExports(await Bun.file(normalizedInput).text()),
+      methods: findEndpointMethodExports(source),
     };
   }
 
@@ -202,7 +194,7 @@ export async function compileElizabethEndpointFile(inputPath: string, options: C
   const imports = findLizImports(source, normalizedInput);
 
   for (const specifier of imports) {
-    await compileElizabethFile(resolve(dirname(normalizedInput), specifier), {
+    await compileElizabethFile(resolveAppImportSpecifier(root, normalizedInput, specifier), {
       root,
       frameworkRoot,
       outDir,
@@ -215,16 +207,7 @@ export async function compileElizabethEndpointFile(inputPath: string, options: C
   const result = compileElizabethEndpoint(source, normalizedInput, {
     runtimeImport: `import { escapeHtml, escapeAttribute } from ${JSON.stringify(runtimePath)};`,
     rewriteImport(statement) {
-      return rewritePackageImport(
-        rewriteCssModuleImport(
-          rewriteLizImport(statement, normalizedInput, outputBasePath, context),
-          normalizedInput,
-          outputBasePath,
-          context,
-        ),
-        outputBasePath,
-        frameworkRoot,
-      );
+      return rewriteServerImportStatement(statement, root, normalizedInput, outputBasePath, frameworkRoot, context);
     },
   });
   const outputPath = outputPathFor(normalizedInput, root, outDir, hashString(result.code));
@@ -262,6 +245,8 @@ async function writeClientModule(
     const textUpdates = component.textBindings.filter((binding) => binding.reactive).map((binding) => {
       return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(__elizabethValue(${binding.expression})));`;
     }).join("\n");
+    const staticHtmlUpdates = component.htmlBindings.filter((binding) => !binding.reactive).map((binding) => emitClientHtmlUpdate(binding)).join("\n");
+    const htmlUpdates = component.htmlBindings.filter((binding) => binding.reactive).map((binding) => emitClientHtmlUpdate(binding)).join("\n");
     const staticAttrUpdates = component.attrBindings.filter((binding) => !binding.reactive).map((binding) => emitClientAttributeUpdate(binding)).join("\n");
     const attrUpdates = component.attrBindings.filter((binding) => binding.reactive).map((binding) => emitClientAttributeUpdate(binding)).join("\n");
     const listeners = component.events.map((event) => {
@@ -272,13 +257,19 @@ async function writeClientModule(
   root.setAttribute("data-elizabeth-hydrated", ${JSON.stringify(component.name)});
 ${stateDeclarations}
 ${clientFunctions}
+  const escapeHtml = (value) => value === null || value === undefined || value === false
+    ? ""
+    : String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#x27;");
+  const escapeAttribute = escapeHtml;
   const __elizabethValue = (value) => typeof value === "function" ? value() : value;
   const renderStatic = () => {
 ${staticTextUpdates}
+${staticHtmlUpdates}
 ${staticAttrUpdates}
   };
   const render = () => {
 ${textUpdates}
+${htmlUpdates}
 ${attrUpdates}
   };
 ${listeners}
@@ -316,6 +307,14 @@ function emitClientAttributeUpdate(binding: ClientComponent["attrBindings"][numb
     }`;
 }
 
+function emitClientHtmlUpdate(binding: ClientComponent["htmlBindings"][number]): string {
+  const selector = JSON.stringify(`[data-elizabeth-html="${binding.id}"]`);
+  return `    {
+      const element = root.querySelector(${selector});
+      if (element) element.innerHTML = ${binding.expression};
+    }`;
+}
+
 async function writeClientManifest(outDir: string, entries: ClientManifestEntry[]): Promise<string> {
   const path = resolve(outDir, "client-manifest.json");
 
@@ -335,6 +334,59 @@ function rewritePackageImport(statement: string, outputPath: string, root: strin
         ? "src/client.ts"
         : "src/elizabeth.ts";
     const rewritten = toImportSpecifier(relative(dirname(outputPath), resolve(root, target)));
+    return `${quote}${rewritten}${quote}`;
+  });
+}
+
+function rewriteServerModuleImports(source: string, root: string, sourcePath: string, outputPath: string, frameworkRoot: string): string {
+  const parsed = parseSync("server-module.ts", source, {
+    lang: "ts",
+    sourceType: "module",
+  });
+  let rewritten = source;
+
+  for (const importEntry of [...parsed.module.staticImports].reverse()) {
+    const statement = source.slice(importEntry.start, importEntry.end);
+    rewritten = `${rewritten.slice(0, importEntry.start)}${rewriteServerImportStatement(statement, root, sourcePath, outputPath, frameworkRoot)}${rewritten.slice(importEntry.end)}`;
+  }
+
+  return rewritten;
+}
+
+function rewriteServerImportStatement(
+  statement: string,
+  root: string,
+  sourcePath: string,
+  outputPath: string,
+  frameworkRoot: string,
+  context?: CompileGraphContext,
+): string {
+  const sourceRelative = rewriteSourceImport(statement, root, sourcePath, outputPath);
+  const rewritten = context
+    ? rewriteCssModuleImport(
+      rewriteLizImport(sourceRelative, root, sourcePath, outputPath, context),
+      root,
+      sourcePath,
+      outputPath,
+      context,
+    )
+    : sourceRelative;
+
+  return rewritePackageImport(
+    rewritten,
+    outputPath,
+    frameworkRoot,
+  );
+}
+
+function rewriteSourceImport(statement: string, root: string, sourcePath: string, outputPath: string): string {
+  return statement.replace(/(["'])(\.{1,2}\/[^"']*|@\/[^"']*)\1/g, (_match, quote: string, specifier: string) => {
+    if (specifier.endsWith(".liz") || specifier.endsWith(".module.css")) {
+      return `${quote}${specifier}${quote}`;
+    }
+
+    const importedSourcePath = resolveAppImportSpecifier(root, sourcePath, specifier);
+    const rewritten = toImportSpecifier(relative(dirname(outputPath), importedSourcePath));
     return `${quote}${rewritten}${quote}`;
   });
 }
@@ -651,12 +703,13 @@ function isIdentifierPart(char: string): boolean {
 
 function rewriteLizImport(
   statement: string,
+  root: string,
   sourcePath: string,
   outputPath: string,
   context: CompileGraphContext,
 ): string {
   return statement.replace(/(["'])([^"']+\.liz)\1/g, (_match, quote: string, specifier: string) => {
-    const importedSourcePath = resolve(dirname(sourcePath), specifier);
+    const importedSourcePath = resolveAppImportSpecifier(root, sourcePath, specifier);
     const importedOutputPath = context.seen.get(importedSourcePath);
 
     if (!importedOutputPath) {
@@ -670,12 +723,13 @@ function rewriteLizImport(
 
 function rewriteCssModuleImport(
   statement: string,
+  root: string,
   sourcePath: string,
   outputPath: string,
   context: CompileGraphContext,
 ): string {
   return statement.replace(/(["'])([^"']+\.module\.css)\1/g, (_match, quote: string, specifier: string) => {
-    const importedSourcePath = resolve(dirname(sourcePath), specifier);
+    const importedSourcePath = resolveAppImportSpecifier(root, sourcePath, specifier);
     const imported = context.cssModules.get(importedSourcePath);
 
     if (!imported) {
@@ -685,6 +739,14 @@ function rewriteCssModuleImport(
     const rewritten = toImportSpecifier(relative(dirname(outputPath), imported.outputPath));
     return `${quote}${rewritten}${quote}`;
   });
+}
+
+function resolveAppImportSpecifier(root: string, sourcePath: string, specifier: string): string {
+  if (specifier.startsWith("@/")) {
+    return resolve(root, "src", specifier.slice(2));
+  }
+
+  return resolve(dirname(sourcePath), specifier);
 }
 
 interface CssMapping {

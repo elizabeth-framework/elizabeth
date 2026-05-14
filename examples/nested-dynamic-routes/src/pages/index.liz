@@ -1,0 +1,10 @@
+@default
+<HomePage>
+  <section className="panel">
+    <h1>Nested dynamic routes</h1>
+    <p>Open <a href="/docs/routing"><code>/docs/routing</code></a> to render the two dynamic page params.</p>
+    <p>Open <a href="/guide/docs/routing"><code>/guide/docs/routing</code></a> to render the same nested params from another configured page root.</p>
+    <p>Fetch <code>/api/docs/routing</code> to see the matching API params.</p>
+    <p>Fetch <code>/v1/docs/routing</code> to see the second configured API root.</p>
+  </section>
+</HomePage>

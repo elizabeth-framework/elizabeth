@@ -1,0 +1,58 @@
+import { projects } from "@/components/data.ts";
+
+@default
+<HomePage>
+  <style>
+    .home {
+      width: min(860px, calc(100% - 32px));
+      min-height: 100vh;
+      margin: 0 auto;
+      display: grid;
+      align-content: center;
+      gap: 20px;
+    }
+
+    .home h1 {
+      margin: 0;
+      font-size: 44px;
+      line-height: 1;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .project {
+      display: grid;
+      gap: 8px;
+      padding: 18px;
+      background: #fff;
+      border: 1px solid #dce6f1;
+      border-radius: 8px;
+      text-decoration: none;
+    }
+
+    .project strong {
+      font-size: 20px;
+    }
+
+    .project span {
+      color: #64748b;
+      line-height: 1.5;
+    }
+  </style>
+
+  <main className="home">
+    <h1>Nested State App</h1>
+    <div className="grid">
+      {for (const project of projects) {
+        <a className="project" href={`/app/projects/${project.id}/tasks`}>
+          <strong>{project.name}</strong>
+          <span>{project.summary}</span>
+        </a>
+      }}
+    </div>
+  </main>
+</HomePage>

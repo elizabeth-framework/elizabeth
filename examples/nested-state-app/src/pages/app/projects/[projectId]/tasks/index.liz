@@ -1,0 +1,162 @@
+import { clientState } from "elizabeth/client";
+
+@private
+<StatusFilter active setActive>
+  <div className="filters">
+    <button className={active === "all" ? "active" : ""} onClick={() => setActive("all")}>All</button>
+    <button className={active === "open" ? "active" : ""} onClick={() => setActive("open")}>Open</button>
+    <button className={active === "done" ? "active" : ""} onClick={() => setActive("done")}>Done</button>
+  </div>
+</StatusFilter>
+
+@private
+<TaskSummary total open done>
+  <div className="summary">
+    <span><strong>{total}</strong>Total</span>
+    <span><strong>{open}</strong>Open</span>
+    <span><strong>{done}</strong>Done</span>
+  </div>
+</TaskSummary>
+
+@private
+<TaskList tasks>
+  <ul className="tasks">
+    {for (const task of tasks) {
+      <li className={task.done ? "done" : ""}>
+        <strong>{task.title}</strong>
+        <span>{task.done ? "done" : "open"}</span>
+      </li>
+    }}
+  </ul>
+</TaskList>
+
+@client
+@default
+<ProjectTasksPage>
+  const [filter, setFilter] = clientState("all");
+  const [tasks, setTasks] = clientState([
+    { id: 1, title: "Trace nested layout boundaries", done: true },
+    { id: 2, title: "Pass state through child components", done: false },
+    { id: 3, title: "Keep derived lists reactive", done: false },
+  ]);
+  const [draft, setDraft] = clientState("");
+  const visible = filter === "all" ? tasks : tasks.filter((task) => filter === "done" ? task.done : !task.done);
+  const open = tasks.filter((task) => !task.done).length;
+  const done = tasks.length - open;
+
+  function addTask() {
+    const title = draft.trim();
+    if (!title) {
+      return;
+    }
+    setTasks([...tasks, { id: tasks.length + 1, title, done: false }]);
+    setDraft("");
+  }
+
+  <style>
+    .board {
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+      background: #fff;
+      border: 1px solid #dce6f1;
+      border-radius: 8px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .summary span {
+      display: grid;
+      gap: 2px;
+      padding: 12px;
+      background: #f8fafc;
+      border-radius: 6px;
+      color: #64748b;
+      font-weight: 800;
+    }
+
+    .summary strong {
+      color: #0f172a;
+      font-size: 26px;
+    }
+
+    .filters {
+      display: flex;
+      gap: 8px;
+    }
+
+    .filters button,
+    .composer button {
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: #e2e8f0;
+      color: #334155;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .filters .active,
+    .composer button {
+      background: #2563eb;
+      color: #fff;
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
+    .composer input {
+      min-width: 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 10px 11px;
+    }
+
+    .tasks {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .tasks li {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+    }
+
+    .tasks li.done strong {
+      color: #64748b;
+      text-decoration: line-through;
+    }
+
+    .tasks span {
+      color: #64748b;
+      font-size: 13px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+  </style>
+
+  <section className="board">
+    <TaskSummary total={tasks.length} open={open} done={done} />
+    <StatusFilter active={filter} setActive={setFilter} />
+    <div className="composer">
+      <input value={draft} onInput={(event) => setDraft(event.target.value)} placeholder="New task" />
+      <button onClick={addTask}>Add</button>
+    </div>
+    <TaskList tasks={visible} />
+  </section>
+</ProjectTasksPage>

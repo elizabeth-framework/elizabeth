@@ -1,0 +1,10 @@
+body {
+  margin: 0;
+  color: #1e293b;
+  background: #eef2f7;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+button {
+  font: inherit;
+}

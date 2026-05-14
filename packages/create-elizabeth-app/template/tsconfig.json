@@ -5,6 +5,10 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "allowImportingTsExtensions": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "noEmit": true,
     "lib": ["ESNext", "DOM"]
   },

@@ -1,0 +1,32 @@
+@default
+<TasksLayout>
+  <style>
+    .taskShell {
+      display: grid;
+      gap: 16px;
+    }
+
+    .taskTabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .taskTabs a {
+      padding: 8px 10px;
+      background: #fff;
+      border: 1px solid #dce6f1;
+      border-radius: 6px;
+      color: #334155;
+      text-decoration: none;
+      font-weight: 800;
+    }
+  </style>
+
+  <section className="taskShell">
+    <nav className="taskTabs">
+      <a href={`/app/projects/${ctx.params.projectId}/tasks`}>Tasks</a>
+    </nav>
+    {children}
+  </section>
+</TasksLayout>

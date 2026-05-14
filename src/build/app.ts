@@ -385,6 +385,20 @@ function apiRouteResultResponse(result) {
     return result;
   }
 
+  if (isRedirectResult(result)) {
+    return new Response(null, {
+      status: result.status,
+      headers: { location: result.location },
+    });
+  }
+
+  if (isNotFoundResult(result)) {
+    return new Response("Not found", {
+      status: 404,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
   if (typeof result === "string") {
     return new Response(result, {
       headers: { "content-type": "text/html; charset=utf-8" },
@@ -882,6 +896,16 @@ function serializeServerApiRoute(route: ApiRoute, distDir: string): object {
 function toServerImportPath(path: string, distDir: string): string {
   const normalized = relative(distDir, path).replaceAll("\\", "/");
   return normalized.startsWith(".") ? normalized : `./${normalized}`;
+}
+
+function hashString(value: string): string {
+  let hash = 5381;
+
+  for (let index = 0; index < value.length; index++) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  }
+
+  return (hash >>> 0).toString(36);
 }
 
 function assertNoRouteConflicts(pageRoutes: Array<{ path: string; methods: string[]; sourcePath: string }>, apiRoutes: ApiRoute[]): void {

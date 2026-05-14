@@ -1,0 +1,6 @@
+node_modules
+dist
+.elizabeth
+src/data/*.sqlite
+src/data/*.sqlite-shm
+src/data/*.sqlite-wal

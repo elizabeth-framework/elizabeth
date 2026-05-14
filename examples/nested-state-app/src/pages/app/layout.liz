@@ -1,0 +1,45 @@
+@default
+<AppLayout>
+  <style>
+    .appShell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      padding: 24px;
+      background: #162033;
+      color: #fff;
+    }
+
+    .sidebar a {
+      display: block;
+      margin-top: 18px;
+      color: #cbd5e1;
+      text-decoration: none;
+      font-weight: 800;
+    }
+
+    .workspace {
+      min-width: 0;
+      padding: 28px;
+    }
+
+    @media (max-width: 760px) {
+      .appShell {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+
+  <div className="appShell">
+    <aside className="sidebar">
+      <strong>Elizabeth</strong>
+      <a href="/">Projects</a>
+    </aside>
+    <main className="workspace">
+      {children}
+    </main>
+  </div>
+</AppLayout>

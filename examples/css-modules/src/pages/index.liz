@@ -1,0 +1,39 @@
+import page from "./index.module.css";
+import { ProductCard } from "@/components/ProductCard.liz";
+
+@default
+<HomePage>
+  const products = [
+    {
+      title: "Starter Kit",
+      price: "$19",
+      description: "A compact package for learning component-scoped styling.",
+    },
+    {
+      title: "Studio Kit",
+      price: "$49",
+      description: "A larger set with reusable cards, buttons, and layout modules.",
+    },
+    {
+      title: "Team Kit",
+      price: "$99",
+      description: "A production-oriented bundle for shared UI surfaces.",
+    },
+  ];
+
+  <main className={page.page}>
+    <section className={page.intro}>
+      <h1>CSS Modules</h1>
+      <p>This example uses a page CSS module, a component CSS module, and an alias import for the component.</p>
+    </section>
+    <section className={page.grid}>
+      {for (const product of products) {
+        <ProductCard
+          title={product.title}
+          price={product.price}
+          description={product.description}
+        />
+      }}
+    </section>
+  </main>
+</HomePage>

@@ -1,0 +1,43 @@
+import { getProject } from "@/components/data.ts";
+
+@default
+<ProjectLayout>
+  const project = getProject(ctx.params.projectId);
+
+  <style>
+    .projectHeader {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 22px;
+    }
+
+    .projectHeader h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.1;
+    }
+
+    .projectHeader p {
+      max-width: 680px;
+      margin: 0;
+      color: #64748b;
+      line-height: 1.6;
+    }
+
+    .owner {
+      color: #2563eb;
+      font-size: 13px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+  </style>
+
+  <section>
+    <header className="projectHeader">
+      <span className="owner">{project.owner}</span>
+      <h1>{project.name}</h1>
+      <p>{project.summary}</p>
+    </header>
+    {children}
+  </section>
+</ProjectLayout>

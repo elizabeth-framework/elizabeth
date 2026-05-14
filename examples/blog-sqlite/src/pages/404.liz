@@ -1,0 +1,29 @@
+@default
+<NotFoundPage>
+  <style>
+    .missing {
+      display: grid;
+      gap: 12px;
+      max-width: 520px;
+      padding: 28px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    .missing h1,
+    .missing p {
+      margin: 0;
+    }
+
+    .missing a {
+      font-weight: 800;
+    }
+  </style>
+
+  <main className="missing">
+    <h1>Post not found</h1>
+    <p>The post you requested does not exist.</p>
+    <a href="/">Back to posts</a>
+  </main>
+</NotFoundPage>

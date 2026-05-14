@@ -15,7 +15,7 @@ go install github.com/codesenberg/bombardier@latest
 Then pass the binary path when running:
 
 ```sh
-BOMBARDIER=/home/<user>/go/bin/bombardier ...
+BOMBARDIER="$(go env GOPATH)/bin/bombardier" ...
 ```
 
 ## Elizabeth-Only Benchmark
@@ -23,13 +23,13 @@ BOMBARDIER=/home/<user>/go/bin/bombardier ...
 Runs the production build of `bench/elizabeth-app` only:
 
 ```sh
-BOMBARDIER=/home/<user>/go/bin/bombardier bench/run-bombardier.sh
+BOMBARDIER="$(go env GOPATH)/bin/bombardier" bench/run-bombardier.sh
 ```
 
 Configurable environment variables:
 
 ```sh
-BOMBARDIER=/home/<user>/go/bin/bombardier \
+BOMBARDIER="$(go env GOPATH)/bin/bombardier" \
 DURATION=20s \
 CONNECTIONS=1000 \
 PORT=3811 \
@@ -48,7 +48,7 @@ Routes:
 Runs Elizabeth, native Bun, Elysia, and Hono one at a time on the same port:
 
 ```sh
-BOMBARDIER=/home/<user>/go/bin/bombardier bench/run-frameworks.sh
+BOMBARDIER="$(go env GOPATH)/bin/bombardier" bench/run-frameworks.sh
 ```
 
 The comparison uses the same route shapes as the Elizabeth-only benchmark.

@@ -123,6 +123,10 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return devResult(await renderViteTransformedModule(pathname), "asset");
     }
 
+    if (isViteInternalRequest(pathname)) {
+      return devResult(await renderViteInternalModule(pathname), "asset");
+    }
+
     let manifest: PageRouteManifest;
     let apiRoutes: ApiRoute[];
 
@@ -182,10 +186,9 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return devResult(await renderNotFound(manifest.notFound), "page");
     }
 
-    const hasGlobalCss = await pathExistsInProjectCache(resolve(root, "src/styles.css"), "file");
     const html = withCssLinks(
-      withGlobalCssBootstrap(result, hasGlobalCss),
-      manifest.cssModules.map((module) => module.href),
+      result,
+      [...await getGlobalCssHrefs(), ...manifest.cssModules.map((module) => module.href)],
     );
     const hmrRefresh = request.headers.get("x-elizabeth-hmr") === "1";
 
@@ -213,7 +216,16 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return redirectResponse(result.location, result.status);
     }
 
-    return htmlResponse(isNotFoundResult(result) ? "" : result, 404);
+    if (isNotFoundResult(result)) {
+      return htmlResponse("", 404);
+    }
+
+    const html = withCssLinks(
+      result,
+      [...await getGlobalCssHrefs(), ...(await getManifest()).cssModules.map((module) => module.href)],
+    );
+
+    return htmlResponse(html, 404);
   }
 
   function devResult(response: Response, kind: DevRouteKind): DevRenderResult {
@@ -394,7 +406,46 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     }
 
     const vitePath = `/${decodeURIComponent(pathname.slice("/_elizabeth/global/".length))}`;
-    const result = await server.transformRequest(vitePath);
+    const isCssRequest = vitePath.endsWith(".css");
+    const result = await server.transformRequest(isCssRequest ? `${vitePath}?direct` : vitePath);
+
+    if (!result) {
+      return new Response("Vite module not found", {
+        status: 404,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      });
+    }
+
+    if (isCssRequest) {
+      return new Response(result.code, {
+        headers: {
+          "content-type": "text/css; charset=utf-8",
+        },
+      });
+    }
+
+    return new Response(rewriteViteDevModule(result.code), {
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }
+
+  async function renderViteInternalModule(pathname: string): Promise<Response> {
+    const server = await getViteDevServer();
+
+    if (!server) {
+      return new Response("Vite module not found", {
+        status: 404,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      });
+    }
+
+    const result = await server.transformRequest(pathname);
 
     if (!result) {
       return new Response("Vite module not found", {
@@ -419,6 +470,12 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
 
     viteDevServer ??= createViteDevServer(root);
     return viteDevServer;
+  }
+
+  async function getGlobalCssHrefs(): Promise<string[]> {
+    return await pathExistsInProjectCache(resolve(root, "src/styles.css"), "file")
+      ? ["/_elizabeth/global/src/styles.css"]
+      : [];
   }
 }
 
@@ -453,6 +510,19 @@ async function renderApiRoute(match: { route: ApiRoute; params: Record<string, s
 
   if (result instanceof Response) {
     return result;
+  }
+
+  if (isRedirectResult(result)) {
+    return redirectResponse(result.location, result.status);
+  }
+
+  if (isNotFoundResult(result)) {
+    return new Response("Not found", {
+      status: 404,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+      },
+    });
   }
 
   if (typeof result === "string") {
@@ -509,6 +579,15 @@ function shouldLogDevRequest(pathname: string, kind: DevRouteKind): boolean {
   }
 
   return true;
+}
+
+function isViteInternalRequest(pathname: string): boolean {
+  return (
+    pathname.startsWith("/@fs/") ||
+    pathname.startsWith("/@vite/") ||
+    pathname.startsWith("/node_modules/") ||
+    pathname === "/__vite_ping"
+  );
 }
 
 function statusColor(status: number): string {
@@ -710,20 +789,6 @@ function withCssLinks(html: string, hrefs: string[]): string {
   return `${links}${html}`;
 }
 
-function withGlobalCssBootstrap(html: string, enabled: boolean): string {
-  if (!enabled) {
-    return html;
-  }
-
-  const script = `<script type="module" src="/_elizabeth/global/src/styles.css"></script>`;
-
-  if (html.includes("</head>")) {
-    return html.replace("</head>", `${script}</head>`);
-  }
-
-  return `${script}${html}`;
-}
-
 async function createViteDevServer(root: string): Promise<ViteDevServerLike> {
   const vite = await importVite();
 
@@ -862,10 +927,15 @@ hmr.onmessage = async (event) => {
       }
       const modulePath = nextLink.getAttribute("href").split("?")[0];
       const current = document.querySelector(\`link[rel="stylesheet"][href^="\${modulePath}"]\`);
+      const href = nextLink.getAttribute("href").includes("?")
+        ? nextLink.getAttribute("href")
+        : modulePath + "?t=" + Date.now();
       if (current) {
-        current.setAttribute("href", nextLink.getAttribute("href"));
+        current.setAttribute("href", href);
       } else {
-        document.head.append(nextLink.cloneNode(true));
+        const fresh = nextLink.cloneNode(true);
+        fresh.setAttribute("href", href);
+        document.head.append(fresh);
       }
     }
     return;
