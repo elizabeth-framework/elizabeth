@@ -6,7 +6,7 @@ import { loadElizabethConfig, type ElizabethConfig } from "../config.ts";
 import { renderDevError } from "./error.ts";
 import { isNotFoundResult, isRedirectResult } from "../route.ts";
 import { buildApiRoutes, describeApiRouteBuildError, matchApiRoute, type ApiRoute } from "../router/api.ts";
-import { buildPageRoutes, matchPageRoute } from "../router/pages.ts";
+import { buildPageRoutes, matchPageRoute, matchSpecialPageRoute } from "../router/pages.ts";
 import type { PageRouteManifest } from "../router/pages.ts";
 import { renderPageRoute, type RenderModuleCache } from "../router/render.ts";
 import { createHmrRuntime } from "./hmr.ts";
@@ -138,6 +138,10 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       return devResult(devErrorResponse(error, pathname), "error");
     }
 
+    if (request.headers.get("x-elizabeth-loading") === "1") {
+      return devResult(await renderLoading(manifest, pathname), "page");
+    }
+
     if (pathname.startsWith("/_elizabeth/css/")) {
       return devResult(await renderCssModule(pathname, manifest), "asset");
     }
@@ -158,16 +162,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     const match = matchPageRoute(manifest.routes, pathname);
 
     if (!match) {
-      if (!manifest.notFound) {
-        return devResult(new Response("Not found", {
-          status: 404,
-          headers: {
-            "content-type": "text/plain; charset=utf-8",
-          },
-        }), "page");
-      }
-
-      return devResult(await renderNotFound(manifest.notFound), "page");
+      return devResult(await renderNotFound(manifest, pathname), "page");
     }
 
     let result: Awaited<ReturnType<typeof renderPageRoute>>;
@@ -175,7 +170,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     try {
       result = await renderPageRoute(match, { moduleCache: renderModuleCache });
     } catch (error) {
-      return devResult(devErrorResponse(error, pathname), "error");
+      return devResult(await renderError(manifest, pathname, error), "error");
     }
 
     if (isRedirectResult(result)) {
@@ -183,7 +178,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     }
 
     if (isNotFoundResult(result)) {
-      return devResult(await renderNotFound(manifest.notFound), "page");
+      return devResult(await renderNotFound(manifest, pathname), "page");
     }
 
     const html = withCssLinks(
@@ -197,8 +192,10 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     ), "page");
   }
 
-  async function renderNotFound(route: Awaited<ReturnType<typeof buildPageRoutes>>["notFound"]): Promise<Response> {
-    if (!route) {
+  async function renderNotFound(manifest: Awaited<ReturnType<typeof buildPageRoutes>>, pathname: string): Promise<Response> {
+    const match = matchSpecialPageRoute(manifest.notFoundRoutes, pathname);
+
+    if (!match) {
       return new Response("Not found", {
         status: 404,
         headers: {
@@ -207,10 +204,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
       });
     }
 
-    const result = await renderPageRoute({
-      route,
-      params: {},
-    }, { moduleCache: renderModuleCache });
+    const result = await renderPageRoute(match, { moduleCache: renderModuleCache });
 
     if (isRedirectResult(result)) {
       return redirectResponse(result.location, result.status);
@@ -226,6 +220,61 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     );
 
     return htmlResponse(html, 404);
+  }
+
+  async function renderError(manifest: Awaited<ReturnType<typeof buildPageRoutes>>, pathname: string, error: unknown): Promise<Response> {
+    const match = matchSpecialPageRoute(manifest.errorRoutes, pathname);
+
+    if (!match) {
+      return devErrorResponse(error, pathname);
+    }
+
+    const route = match.route;
+    const result = await renderPageRoute({
+      route,
+      params: match.params,
+      error,
+    }, { moduleCache: renderModuleCache });
+
+    if (isRedirectResult(result)) {
+      return redirectResponse(result.location, result.status);
+    }
+
+    if (isNotFoundResult(result)) {
+      return await renderNotFound(manifest, pathname);
+    }
+
+    const html = withCssLinks(
+      result,
+      [...await getGlobalCssHrefs(), ...(await getManifest()).cssModules.map((module) => module.href)],
+    );
+
+    return htmlResponse(withDevBootstrap(html, manifest.clientComponents.length > 0), 500);
+  }
+
+  async function renderLoading(manifest: Awaited<ReturnType<typeof buildPageRoutes>>, pathname: string): Promise<Response> {
+    const match = matchSpecialPageRoute(manifest.loadingRoutes, pathname);
+
+    if (!match) {
+      return new Response(null, { status: 204 });
+    }
+
+    const result = await renderPageRoute(match, { moduleCache: renderModuleCache });
+
+    if (isRedirectResult(result)) {
+      return redirectResponse(result.location, result.status);
+    }
+
+    if (isNotFoundResult(result)) {
+      return new Response(null, { status: 204 });
+    }
+
+    const html = withCssLinks(
+      result,
+      [...await getGlobalCssHrefs(), ...(await getManifest()).cssModules.map((module) => module.href)],
+    );
+
+    return htmlResponse(withDevBootstrap(html, manifest.clientComponents.length > 0));
   }
 
   function devResult(response: Response, kind: DevRouteKind): DevRenderResult {

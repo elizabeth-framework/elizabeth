@@ -1,0 +1,8 @@
+@default
+<DocsErrorPage>
+  <main data-error="docs">
+    <h1>Docs error</h1>
+    <p>{ctx.error.message}</p>
+  </main>
+</DocsErrorPage>
+

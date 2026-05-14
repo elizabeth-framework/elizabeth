@@ -184,6 +184,52 @@ test("normal config: missing page should render custom 404 page", async () => {
   });
 });
 
+test("normal config: nested missing page should render nearest 404 page", async () => {
+  await Bun.write(
+    `${appDir}/elizabeth.config.ts`,
+    NORMAL_CONFIG,
+  );
+
+  await fetchCase("/docs/missing-page", async (response, body) => {
+    expect(response.status).toBe(404);
+    expect(body).toContain('data-not-found="docs"');
+    expect(body).toContain("Docs 404");
+  });
+});
+
+test("normal config: nested render error should render nearest error page", async () => {
+  await Bun.write(
+    `${appDir}/elizabeth.config.ts`,
+    NORMAL_CONFIG,
+  );
+
+  await fetchCase("/docs/crash", async (response, body) => {
+    expect(response.status).toBe(500);
+    expect(body).toContain('data-error="docs"');
+    expect(body).toContain("Docs page crashed");
+  });
+});
+
+test("normal config: loading request should render nearest loading page", async () => {
+  await Bun.write(
+    `${appDir}/elizabeth.config.ts`,
+    NORMAL_CONFIG,
+  );
+
+  await withDevServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/docs/anything`, {
+      headers: {
+        "x-elizabeth-loading": "1",
+      },
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('data-loading="docs"');
+    expect(body).toContain("Docs loading");
+  });
+});
+
 test("normal config: src/styles.css should load as global css in dev", async () => {
   await Bun.write(
     `${appDir}/elizabeth.config.ts`,

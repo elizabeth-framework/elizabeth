@@ -1,0 +1,7 @@
+@default
+<DocsLoadingPage>
+  <main data-loading="docs">
+    <h1>Docs loading</h1>
+  </main>
+</DocsLoadingPage>
+

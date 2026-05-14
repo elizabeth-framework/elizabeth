@@ -1,0 +1,7 @@
+@default
+<DocsCrashPage>
+  throw new Error("Docs page crashed");
+
+  <main>Never rendered</main>
+</DocsCrashPage>
+

@@ -14,6 +14,12 @@ export interface PageRoute {
   layouts: PageLayout[];
 }
 
+export interface PageSpecialRoute extends PageRoute {
+  special: "notFound" | "error" | "loading";
+  prefix: string;
+  depth: number;
+}
+
 export interface PageLayout {
   sourcePath: string;
   outputPath: string;
@@ -22,11 +28,17 @@ export interface PageLayout {
 export interface PageRouteMatch {
   route: PageRoute;
   params: Record<string, string>;
+  error?: unknown;
 }
 
 export interface PageRouteManifest {
   routes: PageRoute[];
   notFound: PageRoute | null;
+  error: PageSpecialRoute | null;
+  loading: PageSpecialRoute | null;
+  notFoundRoutes: PageSpecialRoute[];
+  errorRoutes: PageSpecialRoute[];
+  loadingRoutes: PageSpecialRoute[];
   clientComponents: ClientManifestEntry[];
   cssModules: CssModuleEntry[];
 }
@@ -45,7 +57,9 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
   const pageRoots = options.pageRoots ?? [{ dir: resolve(options.pagesDir!), basePath: "/" }];
   const context = options.context ?? createCompileGraphContext();
   const routes: PageRoute[] = [];
-  let notFound: PageRoute | null = null;
+  const notFoundRoutes: PageSpecialRoute[] = [];
+  const errorRoutes: PageSpecialRoute[] = [];
+  const loadingRoutes: PageSpecialRoute[] = [];
 
   for (const pageRoot of pageRoots) {
     const files = options.cache
@@ -57,8 +71,8 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
     }
 
     const layoutFiles = new Set(files.filter(isLayoutFile));
-    const notFoundPath = findNotFoundFile(files);
-    const pageFiles = files.filter((file) => !isLayoutFile(file) && !isNotFoundFile(file));
+    const pageFiles = files.filter((file) => !isLayoutFile(file) && !isSpecialFile(file));
+    const specialFiles = files.filter(isSpecialFile);
 
     for (const sourcePath of pageFiles) {
       const { outputPath } = await compileElizabethFile(sourcePath, {
@@ -82,14 +96,37 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
       });
     }
 
-    if (!notFound && notFoundPath) {
-      notFound = await buildRoute(notFoundPath, pageRoot.dir, layoutFiles, pageRoot.basePath, options, context);
+    for (const sourcePath of specialFiles) {
+      const special = specialKindForFile(sourcePath);
+
+      if (!special) {
+        continue;
+      }
+
+      const route = await buildSpecialRoute(sourcePath, pageRoot.dir, layoutFiles, pageRoot.basePath, special, options, context);
+
+      if (special === "notFound") {
+        notFoundRoutes.push(route);
+      } else if (special === "error") {
+        errorRoutes.push(route);
+      } else {
+        loadingRoutes.push(route);
+      }
     }
   }
 
+  notFoundRoutes.sort(compareSpecialRoutes);
+  errorRoutes.sort(compareSpecialRoutes);
+  loadingRoutes.sort(compareSpecialRoutes);
+
   return {
     routes: routes.sort(compareRoutes),
-    notFound,
+    notFound: fallbackSpecialRoute(notFoundRoutes),
+    error: fallbackSpecialRoute(errorRoutes),
+    loading: fallbackSpecialRoute(loadingRoutes),
+    notFoundRoutes,
+    errorRoutes,
+    loadingRoutes,
     clientComponents: [...context.clientComponents.values()].sort((left, right) => left.moduleId.localeCompare(right.moduleId) || left.name.localeCompare(right.name)),
     cssModules: [...context.cssModules.values()].sort((left, right) => left.href.localeCompare(right.href)),
   };
@@ -122,9 +159,61 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
       layouts,
     };
   }
+
+  async function buildSpecialRoute(
+    sourcePath: string,
+    pagesDir: string,
+    layoutFiles: Set<string>,
+    basePath: string,
+    special: PageSpecialRoute["special"],
+    options: BuildPageRoutesOptions,
+    context: CompileGraphContext,
+  ): Promise<PageSpecialRoute> {
+    const { outputPath } = await compileElizabethFile(sourcePath, {
+      root: options.root,
+      frameworkRoot: options.frameworkRoot,
+      outDir: options.outDir,
+      context,
+    });
+    const layouts = await layoutFilesFor(sourcePath, pagesDir, layoutFiles, options, context);
+    const prefix = specialRoutePrefixFor(sourcePath, pagesDir, basePath);
+    const matcher = specialRouteMatcherFor(prefix);
+
+    return {
+      path: prefix,
+      pattern: matcher.pattern,
+      paramNames: matcher.paramNames,
+      sourcePath,
+      outputPath,
+      layouts,
+      special,
+      prefix,
+      depth: routeDepth(prefix),
+    };
+  }
 }
 
 export function matchPageRoute(routes: PageRoute[], pathname: string): PageRouteMatch | null {
+  for (const route of routes) {
+    const match = route.pattern.exec(pathname);
+
+    if (!match) {
+      continue;
+    }
+
+    const params: Record<string, string> = {};
+
+    for (const [index, name] of route.paramNames.entries()) {
+      params[name] = decodeURIComponent(match[index + 1]);
+    }
+
+    return { route, params };
+  }
+
+  return null;
+}
+
+export function matchSpecialPageRoute(routes: PageSpecialRoute[], pathname: string): PageRouteMatch | null {
   for (const route of routes) {
     const match = route.pattern.exec(pathname);
 
@@ -239,8 +328,34 @@ function isNotFoundFile(path: string): boolean {
   return normalized.endsWith("/404.liz");
 }
 
-function findNotFoundFile(files: string[]): string | null {
-  return files.find(isNotFoundFile) ?? null;
+function isErrorFile(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/");
+  return normalized.endsWith("/error.liz");
+}
+
+function isLoadingFile(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/");
+  return normalized.endsWith("/loading.liz");
+}
+
+function isSpecialFile(path: string): boolean {
+  return isNotFoundFile(path) || isErrorFile(path) || isLoadingFile(path);
+}
+
+function specialKindForFile(path: string): PageSpecialRoute["special"] | null {
+  if (isNotFoundFile(path)) {
+    return "notFound";
+  }
+
+  if (isErrorFile(path)) {
+    return "error";
+  }
+
+  if (isLoadingFile(path)) {
+    return "loading";
+  }
+
+  return null;
 }
 
 function routePathFor(filePath: string, pagesDir: string, basePath: string): string {
@@ -275,6 +390,36 @@ function routeMatcherFor(path: string): { pattern: RegExp; paramNames: string[] 
   };
 }
 
+function specialRoutePrefixFor(filePath: string, pagesDir: string, basePath: string): string {
+  const relativePath = relative(pagesDir, filePath).replaceAll("\\", "/");
+  const segments = relativePath.split("/").slice(0, -1);
+  return joinRoutePath(basePath, segments.join("/"));
+}
+
+function specialRouteMatcherFor(prefix: string): { pattern: RegExp; paramNames: string[] } {
+  const paramNames: string[] = [];
+
+  if (prefix === "/") {
+    return { pattern: /^\/(?:.*)?$/, paramNames };
+  }
+
+  const pattern = prefix.split("/").map((segment) => {
+    const match = /^\[([A-Za-z_$][\w$]*)\]$/.exec(segment);
+
+    if (match) {
+      paramNames.push(match[1]);
+      return "([^/]+)";
+    }
+
+    return escapeRegExp(segment);
+  }).join("/");
+
+  return {
+    pattern: new RegExp(`^${pattern}(?:/.*)?$`),
+    paramNames,
+  };
+}
+
 function compareRoutes(left: PageRoute, right: PageRoute): number {
   const leftDynamic = left.paramNames.length;
   const rightDynamic = right.paramNames.length;
@@ -284,6 +429,29 @@ function compareRoutes(left: PageRoute, right: PageRoute): number {
   }
 
   return left.path.localeCompare(right.path);
+}
+
+function compareSpecialRoutes(left: PageSpecialRoute, right: PageSpecialRoute): number {
+  if (left.depth !== right.depth) {
+    return right.depth - left.depth;
+  }
+
+  const leftDynamic = left.paramNames.length;
+  const rightDynamic = right.paramNames.length;
+
+  if (leftDynamic !== rightDynamic) {
+    return leftDynamic - rightDynamic;
+  }
+
+  return left.path.localeCompare(right.path);
+}
+
+function routeDepth(path: string): number {
+  return path === "/" ? 0 : path.split("/").filter(Boolean).length;
+}
+
+function fallbackSpecialRoute(routes: PageSpecialRoute[]): PageSpecialRoute | null {
+  return routes.find((route) => route.path === "/") ?? routes[0] ?? null;
 }
 
 function escapeRegExp(value: string): string {

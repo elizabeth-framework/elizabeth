@@ -5,7 +5,7 @@ import { compileElizabeth } from "../src/compiler/compile.ts";
 import { compileElizabethEndpointFile, compileElizabethFile } from "../src/compiler/file.ts";
 import { loadElizabethConfig } from "../src/config.ts";
 import { buildApiRoutes, matchApiRoute } from "../src/router/api.ts";
-import { buildPageRoutes, matchPageRoute } from "../src/router/pages.ts";
+import { buildPageRoutes, matchPageRoute, matchSpecialPageRoute } from "../src/router/pages.ts";
 import { renderPageRoute } from "../src/router/render.ts";
 
 async function tempProject(name: string): Promise<string> {
@@ -863,6 +863,92 @@ test("buildPageRoutes renders complex nested layouts with dynamic params", async
     expect(html).toContain("Section guides");
     expect(html).toContain("<p>guides</p>");
     expect(html).toContain("<p>routing</p>");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildPageRoutes supports hierarchical 404, error, and loading files", async () => {
+  const root = await tempProject("hierarchical-special-pages");
+
+  try {
+    await mkdir(join(root, "src/pages/docs/[section]"), { recursive: true });
+    await Bun.write(join(root, "src/pages/layout.liz"), `
+@default
+<RootLayout>
+  <html><body>{children}</body></html>
+</RootLayout>
+`);
+    await Bun.write(join(root, "src/pages/404.liz"), `
+@default
+<RootNotFound>
+  <main>Global missing</main>
+</RootNotFound>
+`);
+    await Bun.write(join(root, "src/pages/error.liz"), `
+@default
+<RootError>
+  <main>Global error {ctx.error.message}</main>
+</RootError>
+`);
+    await Bun.write(join(root, "src/pages/loading.liz"), `
+@default
+<RootLoading>
+  <main>Global loading</main>
+</RootLoading>
+`);
+    await Bun.write(join(root, "src/pages/docs/[section]/404.liz"), `
+@default
+<DocsNotFound>
+  <main>Docs missing {ctx.params.section}</main>
+</DocsNotFound>
+`);
+    await Bun.write(join(root, "src/pages/docs/[section]/error.liz"), `
+@default
+<DocsError>
+  <main>Docs error {ctx.params.section}: {ctx.error.message}</main>
+</DocsError>
+`);
+    await Bun.write(join(root, "src/pages/docs/[section]/loading.liz"), `
+@default
+<DocsLoading>
+  <main>Docs loading {ctx.params.section}</main>
+</DocsLoading>
+`);
+    await Bun.write(join(root, "src/pages/docs/[section]/index.liz"), `
+@default
+<DocsPage>
+  <main>Docs {ctx.params.section}</main>
+</DocsPage>
+`);
+
+    const manifest = await buildPageRoutes({
+      root,
+      frameworkRoot: process.cwd(),
+      pageRoots: [{ dir: join(root, "src/pages"), basePath: "/" }],
+      outDir: join(root, ".elizabeth"),
+    });
+    const docsNotFound = matchSpecialPageRoute(manifest.notFoundRoutes, "/docs/guides/missing");
+    const rootNotFound = matchSpecialPageRoute(manifest.notFoundRoutes, "/unknown");
+    const docsError = matchSpecialPageRoute(manifest.errorRoutes, "/docs/guides/crash");
+    const docsLoading = matchSpecialPageRoute(manifest.loadingRoutes, "/docs/guides/wait");
+
+    expect(manifest.routes.map((route) => route.path)).toEqual(["/docs/[section]"]);
+    expect(manifest.notFoundRoutes.map((route) => route.path)).toEqual(["/docs/[section]", "/"]);
+    expect(manifest.errorRoutes.map((route) => route.path)).toEqual(["/docs/[section]", "/"]);
+    expect(manifest.loadingRoutes.map((route) => route.path)).toEqual(["/docs/[section]", "/"]);
+    expect(docsNotFound?.params).toEqual({ section: "guides" });
+    expect(rootNotFound?.params).toEqual({});
+    expect(docsError?.params).toEqual({ section: "guides" });
+    expect(docsLoading?.params).toEqual({ section: "guides" });
+
+    const notFoundHtml = await renderPageRoute(docsNotFound!);
+    const errorHtml = await renderPageRoute({ ...docsError!, error: new Error("Boom") });
+    const loadingHtml = await renderPageRoute(docsLoading!);
+
+    expect(notFoundHtml).toContain("Docs missing guides");
+    expect(errorHtml).toContain("Docs error guides: Boom");
+    expect(loadingHtml).toContain("Docs loading guides");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

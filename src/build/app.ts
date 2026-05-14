@@ -70,6 +70,8 @@ export async function buildElizabethApp(options: ElizabethBuildOptions): Promise
       params: route.paramNames,
     })),
     notFound: Boolean(manifest.notFound),
+    error: Boolean(manifest.error),
+    loading: Boolean(manifest.loading),
     islands: manifest.clientComponents.map((component) => ({
       name: component.name,
       moduleId: component.moduleId,
@@ -87,10 +89,16 @@ export async function buildElizabethApp(options: ElizabethBuildOptions): Promise
       continue;
     }
 
-    const result = await renderPageRoute({
-      route,
-      params: {},
-    });
+    let result: Awaited<ReturnType<typeof renderPageRoute>>;
+
+    try {
+      result = await renderPageRoute({
+        route,
+        params: {},
+      });
+    } catch {
+      continue;
+    }
 
     if (isRedirectResult(result) || isNotFoundResult(result)) {
       continue;
@@ -198,7 +206,9 @@ async function writeServerEntry(
 ): Promise<void> {
   const serverRoutes = manifest.routes.map((route) => serializeServerRoute(route, distDir));
   const serverApiRoutes = apiRoutes.map((route) => serializeServerApiRoute(route, distDir));
-  const notFound = manifest.notFound ? serializeServerRoute(manifest.notFound, distDir) : null;
+  const notFoundRoutes = manifest.notFoundRoutes.map((route) => serializeServerRoute(route, distDir));
+  const errorRoutes = manifest.errorRoutes.map((route) => serializeServerRoute(route, distDir));
+  const loadingRoutes = manifest.loadingRoutes.map((route) => serializeServerRoute(route, distDir));
   const code = `#!/usr/bin/env bun
 import { stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -207,7 +217,9 @@ import { fileURLToPath } from "node:url";
 const distDir = dirname(fileURLToPath(import.meta.url));
 const routes = ${JSON.stringify(serverRoutes, null, 2)};
 const apiRoutes = ${JSON.stringify(serverApiRoutes, null, 2)};
-const notFoundRoute = ${JSON.stringify(notFound, null, 2)};
+const notFoundRoutes = ${JSON.stringify(notFoundRoutes, null, 2)};
+const errorRoutes = ${JSON.stringify(errorRoutes, null, 2)};
+const loadingRoutes = ${JSON.stringify(loadingRoutes, null, 2)};
 const cssHrefs = ${JSON.stringify([...options.globalCssHrefs, ...options.cssModuleHrefs])};
 const hasIslands = ${JSON.stringify(options.hasIslands)};
 const redirectMarker = Symbol.for("elizabeth.redirect");
@@ -215,7 +227,9 @@ const notFoundMarker = Symbol.for("elizabeth.notFound");
 const EMPTY_PARAMS = {};
 const compiledRoutes = routes.map(compileServerRoute);
 const compiledApiRoutes = apiRoutes.map(compileServerRoute);
-const compiledNotFoundRoute = notFoundRoute ? compileServerRoute(notFoundRoute) : null;
+const compiledNotFoundRoutes = notFoundRoutes.map(compileServerRoute);
+const compiledErrorRoutes = errorRoutes.map(compileServerRoute);
+const compiledLoadingRoutes = loadingRoutes.map(compileServerRoute);
 const exactRoutes = exactRouteMap(compiledRoutes);
 const exactApiRoutes = exactRouteMap(compiledApiRoutes);
 const moduleCache = new Map();
@@ -244,13 +258,13 @@ Bun.serve({
             logCompletedRequest(request, pathname, resolved, startedAt);
             return resolved;
           })
-          .catch((error) => internalErrorResponse(error));
+          .catch((error) => internalErrorResponse(error, pathname));
       }
 
       logCompletedRequest(request, pathname, response, startedAt);
       return response;
     } catch (error) {
-      return internalErrorResponse(error);
+      return internalErrorResponse(error, pathname);
     }
   },
 });
@@ -273,12 +287,9 @@ function logCompletedRequest(request, pathname, response, startedAt) {
   }
 }
 
-function internalErrorResponse(error) {
+function internalErrorResponse(error, pathname) {
   console.error(error);
-  return new Response("Internal Server Error", {
-    status: 500,
-    headers: { "content-type": "text/plain; charset=utf-8" },
-  });
+  return renderError(pathname, error);
 }
 
 function renderRequest(request, pathname) {
@@ -290,6 +301,10 @@ function renderRequest(request, pathname) {
 
     if (pathname.startsWith("/_elizabeth/")) {
       return serveStatic(pathname);
+    }
+
+    if (request.headers.get("x-elizabeth-loading") === "1") {
+      return renderLoading(pathname);
     }
 
 const apiMatch = matchRoute(compiledApiRoutes, pathname, exactApiRoutes);
@@ -307,13 +322,13 @@ const apiMatch = matchRoute(compiledApiRoutes, pathname, exactApiRoutes);
 
     const match = matchRoute(compiledRoutes, pathname, exactRoutes);
     if (!match) {
-      return renderNotFound();
+      return renderNotFound(pathname);
     }
 
-    return renderMatchedRoute(match, 200);
+    return renderMatchedRoute(match, 200, pathname);
 }
 
-function renderMatchedRoute(match, status) {
+function renderMatchedRoute(match, status, pathname) {
   if (status === 200 && match.route.static) {
     const cached = staticHtmlCache.get(match.route.path);
 
@@ -322,16 +337,24 @@ function renderMatchedRoute(match, status) {
     }
   }
 
-  const result = renderRoute(match);
+  let result;
 
-  if (result instanceof Promise) {
-    return result.then((resolved) => renderRouteResult(resolved, status));
+  try {
+    result = renderRoute(match);
+  } catch (error) {
+    return renderError(pathname, error);
   }
 
-  return renderRouteResult(result, status);
+  if (result instanceof Promise) {
+    return result
+      .then((resolved) => renderRouteResult(resolved, status, pathname))
+      .catch((error) => renderError(pathname, error));
+  }
+
+  return renderRouteResult(result, status, pathname);
 }
 
-function renderRouteResult(result, status) {
+function renderRouteResult(result, status, pathname) {
   if (isRedirectResult(result)) {
     return new Response(null, {
       status: result.status,
@@ -340,7 +363,7 @@ function renderRouteResult(result, status) {
   }
 
   if (isNotFoundResult(result)) {
-    return renderNotFound();
+    return renderNotFound(pathname);
   }
 
   return htmlResponse(withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), status);
@@ -374,13 +397,13 @@ function renderApiRoute(match, request, method) {
   const result = handler(context);
 
   if (result instanceof Promise) {
-    return result.then(apiRouteResultResponse);
+    return result.then((resolved) => apiRouteResultResponse(resolved, new URL(request.url).pathname));
   }
 
-  return apiRouteResultResponse(result);
+  return apiRouteResultResponse(result, new URL(request.url).pathname);
 }
 
-function apiRouteResultResponse(result) {
+function apiRouteResultResponse(result, pathname) {
   if (result instanceof Response) {
     return result;
   }
@@ -393,10 +416,7 @@ function apiRouteResultResponse(result) {
   }
 
   if (isNotFoundResult(result)) {
-    return new Response("Not found", {
-      status: 404,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    return renderNotFound(pathname);
   }
 
   if (typeof result === "string") {
@@ -425,21 +445,88 @@ function methodNotAllowedResponse(methods) {
   });
 }
 
-function renderNotFound() {
-  if (!compiledNotFoundRoute) {
+function renderNotFound(pathname) {
+  const match = matchSpecialRoute(compiledNotFoundRoutes, pathname);
+
+  if (!match) {
     return new Response("Not found", {
       status: 404,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   }
 
-  const result = renderRoute({ route: compiledNotFoundRoute, params: {} });
+  const result = renderRoute(match);
 
   if (result instanceof Promise) {
     return result.then((resolved) => renderNotFoundResult(resolved));
   }
 
   return renderNotFoundResult(result);
+}
+
+function renderError(pathname, error) {
+  const match = matchSpecialRoute(compiledErrorRoutes, pathname);
+
+  if (!match) {
+    return new Response("Internal Server Error", {
+      status: 500,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  const result = renderRoute({ ...match, error });
+
+  if (result instanceof Promise) {
+    return result.then((resolved) => renderErrorResult(resolved, pathname));
+  }
+
+  return renderErrorResult(result, pathname);
+}
+
+function renderErrorResult(result, pathname) {
+  if (isRedirectResult(result)) {
+    return new Response(null, {
+      status: result.status,
+      headers: { location: result.location },
+    });
+  }
+
+  if (isNotFoundResult(result)) {
+    return renderNotFound(pathname);
+  }
+
+  return htmlResponse(withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), 500);
+}
+
+function renderLoading(pathname) {
+  const match = matchSpecialRoute(compiledLoadingRoutes, pathname);
+
+  if (!match) {
+    return new Response(null, { status: 204 });
+  }
+
+  const result = renderRoute(match);
+
+  if (result instanceof Promise) {
+    return result.then(renderLoadingResult);
+  }
+
+  return renderLoadingResult(result);
+}
+
+function renderLoadingResult(result) {
+  if (isRedirectResult(result)) {
+    return new Response(null, {
+      status: result.status,
+      headers: { location: result.location },
+    });
+  }
+
+  if (isNotFoundResult(result)) {
+    return new Response(null, { status: 204 });
+  }
+
+  return htmlResponse(withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), 200);
 }
 
 function renderNotFoundResult(result) {
@@ -454,7 +541,7 @@ function renderNotFoundResult(result) {
 }
 
 function renderRoute(match) {
-  const ctx = { params: match.params };
+  const ctx = { params: match.params, error: match.error };
   const page = getServerModule(match.route.module);
   const html = page.default({}, ctx);
 
@@ -520,7 +607,7 @@ function renderRemainingRouteLayouts(match, ctx, html, startIndex) {
 async function preloadServerModules() {
   const specifiers = new Set();
 
-  for (const route of [...compiledRoutes, ...compiledApiRoutes, compiledNotFoundRoute].filter(Boolean)) {
+  for (const route of [...compiledRoutes, ...compiledApiRoutes, ...compiledNotFoundRoutes, ...compiledErrorRoutes, ...compiledLoadingRoutes].filter(Boolean)) {
     specifiers.add(route.module);
 
     for (const layout of route.layouts ?? []) {
@@ -535,7 +622,13 @@ async function preloadServerModules() {
 
 async function preloadStaticHtml() {
   await Promise.all(compiledRoutes.filter((route) => route.static).map(async (route) => {
-    const result = await renderRoute({ route, params: {} });
+    let result;
+
+    try {
+      result = await renderRoute({ route, params: {} });
+    } catch {
+      return;
+    }
 
     if (!isRedirectResult(result) && !isNotFoundResult(result)) {
       staticHtmlCache.set(route.path, withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands));
@@ -601,6 +694,22 @@ function matchRoute(routes, pathname, exact) {
   for (const route of routes) {
     if (route.static) continue;
 
+    const match = route.pattern.exec(pathname);
+    if (!match) continue;
+
+    const params = {};
+    for (const [index, name] of route.paramNames.entries()) {
+      params[name] = decodeURIComponent(match[index + 1]);
+    }
+
+    return { route, params };
+  }
+
+  return null;
+}
+
+function matchSpecialRoute(routes, pathname) {
+  for (const route of routes) {
     const match = route.pattern.exec(pathname);
     if (!match) continue;
 

@@ -1,0 +1,7 @@
+@default
+<LoadingPage>
+  <main data-loading="root">
+    <h1>Root loading</h1>
+  </main>
+</LoadingPage>
+

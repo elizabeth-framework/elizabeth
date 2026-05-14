@@ -1,0 +1,8 @@
+@default
+<ErrorPage>
+  <main data-error="root">
+    <h1>Root error</h1>
+    <p>{ctx.error.message}</p>
+  </main>
+</ErrorPage>
+

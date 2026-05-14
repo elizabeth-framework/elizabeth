@@ -3,8 +3,12 @@ import { isNotFoundResult, isRedirectResult, type NotFoundResult, type RedirectR
 import type { PageRouteMatch } from "./pages.ts";
 
 export type RenderRouteResult = string | RedirectResult | NotFoundResult;
+export interface RenderPageContext {
+  params: Record<string, string>;
+  error?: unknown;
+}
 type RenderModule = {
-  default(props?: Record<string, unknown>, ctx?: { params: Record<string, string> }): Promise<RenderRouteResult> | RenderRouteResult;
+  default(props?: Record<string, unknown>, ctx?: RenderPageContext): Promise<RenderRouteResult> | RenderRouteResult;
 };
 
 export type RenderModuleCache = Map<string, Promise<RenderModule>>;
@@ -14,7 +18,7 @@ export interface RenderPageRouteOptions {
 }
 
 export async function renderPageRoute(match: PageRouteMatch, options: RenderPageRouteOptions = {}): Promise<RenderRouteResult> {
-  const ctx = { params: match.params };
+  const ctx = { params: match.params, error: match.error };
   const page = await importRenderModule(match.route.outputPath, options.moduleCache);
   let html = await page.default({}, ctx);
 

@@ -1,0 +1,7 @@
+@default
+<DocsNotFoundPage>
+  <main data-not-found="docs">
+    <h1>Docs 404</h1>
+  </main>
+</DocsNotFoundPage>
+
