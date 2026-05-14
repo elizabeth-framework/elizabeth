@@ -1,6 +1,6 @@
 # Elizabeth App
 
-This is a reactive web application built with [Elizabeth](https://github.com/lizorigin/elizabeth).
+This is a reactive web application built with [Elizabeth](https://github.com/elizabeth-js/elizabeth).
 
 ## Getting Started
 

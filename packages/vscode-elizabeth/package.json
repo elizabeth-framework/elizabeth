@@ -5,7 +5,7 @@
   "publisher": "Shinapri",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lizorigin/elizabeth.git"
+    "url": "https://github.com/elizabeth-js/elizabeth.git"
   },
   "version": "0.0.1",
   "icon": "./assets/icon.png",

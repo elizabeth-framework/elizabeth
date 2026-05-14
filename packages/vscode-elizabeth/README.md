@@ -135,7 +135,7 @@ Some advanced Elizabeth-specific syntax may not be understood exactly like the E
 
 ## Links
 
-* Elizabeth repository: [https://github.com/lizorigin/elizabeth](https://github.com/lizorigin/elizabeth)
+* Elizabeth repository: [https://github.com/elizabeth-js/elizabeth](https://github.com/elizabeth-js/elizabeth)
 
 ## License
 

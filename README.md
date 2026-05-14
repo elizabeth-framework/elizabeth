@@ -11,7 +11,7 @@ This is an early `0.0.x` release. Expect rough edges while the syntax and runtim
 ## Create An App
 
 ```bash
-bun create elizabeth my-app
+bun create elizabeth-app my-app
 cd my-app
 bun run dev
 ```

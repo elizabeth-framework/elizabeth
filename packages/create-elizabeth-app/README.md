@@ -1,6 +1,6 @@
 # create-elizabeth-app
 
-The official scaffolding tool for the [Elizabeth](https://github.com/lizorigin/elizabeth) web framework.
+The official scaffolding tool for the [Elizabeth](https://github.com/elizabeth-js/elizabeth) web framework.
 
 ## Usage
 

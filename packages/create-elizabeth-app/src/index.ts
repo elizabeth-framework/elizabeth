@@ -161,15 +161,15 @@ function packageNameFor(targetDir: string, cwd: string): string {
 }
 
 function defaultElizabethSpecifier(): string {
-  return "npm:@lizorigin/elizabeth@^0.0.5";
+  return "npm:@elizabeth-js/elizabeth@^0.0.6";
 }
 
 function printHelp(): void {
   console.log(`create-elizabeth-app
 
 Usage:
-  bun create @lizorigin/elizabeth-app my-app
-  bunx @lizorigin/create-elizabeth-app my-app
+  bun create @elizabeth-js/elizabeth-app my-app
+  bunx @elizabeth-js/create-elizabeth-app my-app
 
 Options:
   --elizabeth <specifier>  Override the elizabeth dependency specifier.
