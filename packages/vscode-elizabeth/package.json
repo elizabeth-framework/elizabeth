@@ -7,7 +7,7 @@
     "type": "git",
     "url": "https://github.com/elizabeth-js/elizabeth.git"
   },
-  "version": "0.0.1",
+  "version": "0.0.3",
   "icon": "./assets/icon.png",
   "engines": {
     "vscode": "^1.90.0"
@@ -19,7 +19,9 @@
   "contributes": {
     "configurationDefaults": {
       "[elizabeth]": {
-        "editor.linkedEditing": true
+        "editor.linkedEditing": true,
+        "typescript.preferences.importModuleSpecifier": "non-relative",
+        "javascript.preferences.importModuleSpecifier": "non-relative"
       }
     },
     "languages": [

@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import {
     LanguageClient,
-    LanguageClientOptions,
-    ServerOptions,
     TransportKind,
     Trace
+} from 'vscode-languageclient/node';
+import type {
+    LanguageClientOptions,
+    ServerOptions
 } from 'vscode-languageclient/node';
 import * as path from 'path';
 import { activateAutoInsertion } from '@volar/vscode';

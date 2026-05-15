@@ -28,6 +28,25 @@ export class LizVirtualCode implements VirtualCode {
 
         const jsxTypes = `/// <reference lib="esnext" />
 /// <reference lib="dom" />
+type ElizabethComponentProps = Record<string, any> & { children?: any };
+type ElizabethComponentContext = {
+    params: Record<string, string>;
+    error?: any;
+    locals?: Record<string, any>;
+    request?: Request;
+    url?: URL;
+};
+declare module "elizabeth/client" {
+    export function clientState<T>(initialValue: T): [T, (value: T | ((current: T) => T)) => void];
+}
+declare module "elizabeth/route" {
+    export type RedirectResult = any;
+    export type NotFoundResult = any;
+    export function redirect(location: string, status?: number): RedirectResult;
+    export function notFound(): NotFoundResult;
+    export function isRedirectResult(value: unknown): value is RedirectResult;
+    export function isNotFoundResult(value: unknown): value is NotFoundResult;
+}
 declare global {
 namespace JSX {
     type Element = any;
@@ -117,7 +136,7 @@ export {};
         let match: RegExpExecArray | null;
 
         while ((match = componentRegex.exec(processedText)) !== null) {
-            const componentName = match[1];
+            const componentName = match[1]!;
             const startTagIndex = match.index;
             const startTagEndIndex = startTagIndex + match[0].length;
 
@@ -157,7 +176,8 @@ export {};
             });
 
             generatedText += componentName;
-            generatedText += '() {';
+            generatedText += '(props: ElizabethComponentProps = {}, ctx: ElizabethComponentContext = { params: {} }) {';
+            generatedText += this.componentPropsStatement(match[0]);
 
             const body = processedText.substring(startTagEndIndex, closeTagIndex);
             const firstHtmlMatch = /<[a-z]/.exec(body);
@@ -191,8 +211,8 @@ export {};
         let styleIndex = 0;
 
         while ((styleMatch = styleRegex.exec(text)) !== null) {
-            const styleContent = styleMatch[2];
-            const startOffset = styleMatch.index + styleMatch[1].length;
+            const styleContent = styleMatch[2]!;
+            const startOffset = styleMatch.index + styleMatch[1]!.length;
 
             this.embeddedCodes.push({
                 id: `style_${styleIndex++}`,
@@ -229,6 +249,31 @@ export {};
             getLength: () => finalGeneratedText.length,
             getChangeRange: () => undefined,
         };
+    }
+
+    private componentPropsStatement(openTag: string): string {
+        const attrs = openTag
+            .replace(/^<[A-Z][a-zA-Z0-9_]*/, '')
+            .replace(/\/?>$/, '');
+        const props: string[] = [];
+        const propPattern = /\s([A-Za-z_$][\w$]*)(?=$|\s|=)/g;
+        let propMatch: RegExpExecArray | null;
+
+        while ((propMatch = propPattern.exec(attrs)) !== null) {
+            const name = propMatch[1]!;
+
+            if (!props.includes(name)) {
+                props.push(name);
+            }
+        }
+
+        if (!props.includes('children')) {
+            props.push('children');
+        }
+
+        return props.length > 0
+            ? `const { ${props.join(', ')} } = props;`
+            : '';
     }
 }
 

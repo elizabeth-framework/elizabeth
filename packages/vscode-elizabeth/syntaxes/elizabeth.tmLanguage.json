@@ -95,6 +95,7 @@
     },
     "logic-line": {
       "patterns": [
+        { "include": "#imports" },
         {
           "begin": "^\\s*(?=(const|let|var|function|async|await|if|else|for|while|switch|case|return|throw|try|catch|finally|import|export|type|interface|enum|class)\\b)",
           "end": "$",
@@ -103,6 +104,31 @@
             { "include": "#elizabeth-tags" },
             { "include": "source.tsx" }
           ]
+        }
+      ]
+    },
+    "imports": {
+      "patterns": [
+        {
+          "match": "\\b(import)\\b(?:(\\s+)(type)\\b)?(?:(\\s+)([A-Za-z_$][\\w$]*|\\{[^\\n]*?\\}|\\*\\s+as\\s+[A-Za-z_$][\\w$]*)(\\s+)(from)\\s*)?(\"[^\"\\n]*\"|'[^'\\n]*')",
+          "captures": {
+            "1": { "name": "keyword.control.import.ts" },
+            "3": { "name": "storage.modifier.type.ts" },
+            "5": { "patterns": [{ "include": "source.tsx" }] },
+            "7": { "name": "keyword.control.from.ts" },
+            "8": { "name": "string.quoted.module.ts" }
+          }
+        },
+        {
+          "match": "\\b(export)\\b(?:(\\s+)(type)\\b)?(?:(\\s+)(\\{[^\\n]*?\\}|\\*)\\s*(?:(as)\\s+[A-Za-z_$][\\w$]*)?(\\s+)(from)\\s*)?(\"[^\"\\n]*\"|'[^'\\n]*')",
+          "captures": {
+            "1": { "name": "keyword.control.export.ts" },
+            "3": { "name": "storage.modifier.type.ts" },
+            "5": { "patterns": [{ "include": "source.tsx" }] },
+            "6": { "name": "keyword.control.as.ts" },
+            "8": { "name": "keyword.control.from.ts" },
+            "9": { "name": "string.quoted.module.ts" }
+          }
         }
       ]
     }

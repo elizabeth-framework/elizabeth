@@ -161,7 +161,7 @@ function packageNameFor(targetDir: string, cwd: string): string {
 }
 
 function defaultElizabethSpecifier(): string {
-  return "npm:@elizabeth-js/elizabeth@^0.0.6";
+  return "npm:@elizabeth-js/elizabeth@latest";
 }
 
 function printHelp(): void {
