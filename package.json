@@ -24,7 +24,8 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "bun test ./tests",
+    "test": "bun test ./tests ./packages/utilities/tests",
+    "test:utilities": "bun test ./packages/utilities/tests",
     "smoke": "bun run src/dev/smoke.ts",
     "dev": "bun run src/dev/server.ts",
     "build": "bun run src/cli.ts build"
