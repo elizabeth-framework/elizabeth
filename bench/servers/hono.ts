@@ -6,10 +6,12 @@ const app = new Hono();
 app.get("/", (c) => c.html("<!doctype html><main>Hello, Elizabeth</main>"));
 app.get("/users/:id", (c) => c.html("<!doctype html><main>User profile</main>"));
 app.get("/plain", (c) => c.text("Hello, Elizabeth"));
-app.get("/json", (c) => c.json({
-  hello: "world",
-  framework: "hono",
-}));
+app.get("/json", (c) =>
+  c.json({
+    hello: "world",
+    framework: "hono",
+  }),
+);
 
 Bun.serve({
   port,

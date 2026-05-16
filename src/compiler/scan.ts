@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { ProjectCache } from "./cache";
+import type { ProjectCache } from "./cache";
 
 export async function scanProjectSrc(root: string, cache: ProjectCache) {
   const srcRoot = join(root, "src");

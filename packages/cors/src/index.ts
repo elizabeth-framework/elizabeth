@@ -1,9 +1,4 @@
-export type CorsOrigin =
-  | "*"
-  | string
-  | string[]
-  | RegExp
-  | ((origin: string | null) => boolean | string | null);
+export type CorsOrigin = "*" | string | string[] | RegExp | ((origin: string | null) => boolean | string | null);
 
 export interface CorsOptions {
   origin?: CorsOrigin;

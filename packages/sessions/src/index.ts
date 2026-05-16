@@ -1,5 +1,5 @@
+import { type CookieOptions, getCookie, serializeCookie } from "@elizabeth-js/cookies";
 import { signValue, unsignValue } from "@elizabeth-js/crypto";
-import { getCookie, serializeCookie, type CookieOptions } from "@elizabeth-js/cookies";
 
 export interface SessionStoreOptions {
   secret: string;
@@ -58,10 +58,7 @@ export function createSessionStore<T = Record<string, unknown>>(options: Session
   }
 
   function write(response: Response, data: T): Response {
-    response.headers.append(
-      "set-cookie",
-      serializeCookie(cookieName, serialize(data), baseCookieOptions),
-    );
+    response.headers.append("set-cookie", serializeCookie(cookieName, serialize(data), baseCookieOptions));
     return response;
   }
 

@@ -35,7 +35,9 @@ test("loadElizabethConfig warns for duplicate page and api base paths", async ()
   const originalWarn = console.warn;
 
   try {
-    await Bun.write(join(root, "elizabeth.config.ts"), `
+    await Bun.write(
+      join(root, "elizabeth.config.ts"),
+      `
 export default {
   pageRoutes: {
     "src/pages": "/",
@@ -46,7 +48,8 @@ export default {
     "src/another-api": "/api",
   },
 };
-`);
+`,
+    );
 
     console.warn = (message?: unknown) => {
       warnings.push(String(message));
@@ -67,7 +70,9 @@ test("loadElizabethConfig normalizes string, array, and object route config", as
   const originalWarn = console.warn;
 
   try {
-    await Bun.write(join(root, "elizabeth.config.ts"), `
+    await Bun.write(
+      join(root, "elizabeth.config.ts"),
+      `
 export default {
   pageRoutes: {
     "src/pages": "",
@@ -75,7 +80,8 @@ export default {
   },
   apiRoutes: ["src/api", "src/internal-api"],
 };
-`);
+`,
+    );
 
     console.warn = () => {};
     const config = await loadElizabethConfig(root);
@@ -100,12 +106,15 @@ test("loadElizabethConfig warns when the same route directory is configured twic
   const originalWarn = console.warn;
 
   try {
-    await Bun.write(join(root, "elizabeth.config.ts"), `
+    await Bun.write(
+      join(root, "elizabeth.config.ts"),
+      `
 export default {
   pageRoutes: ["src/pages", "src/pages"],
   apiRoutes: ["src/api", "src/api"],
 };
-`);
+`,
+    );
 
     console.warn = (message?: unknown) => {
       warnings.push(String(message));
@@ -127,11 +136,14 @@ test("compileElizabethEndpointFile supports undecorated method tags", async () =
 
   try {
     await mkdir(join(root, "src/api"), { recursive: true });
-    await Bun.write(sourcePath, `
+    await Bun.write(
+      sourcePath,
+      `
 <GET>
   <p>Hello from Elizabeth</p>
 </GET>
-`);
+`,
+    );
 
     const result = await compileElizabethEndpointFile(sourcePath, {
       root,
@@ -154,13 +166,16 @@ test("compileElizabethEndpointFile preserves imports before method tags", async 
 
   try {
     await mkdir(join(root, "src/api"), { recursive: true });
-    await Bun.write(sourcePath, `
+    await Bun.write(
+      sourcePath,
+      `
 const message = "Hello from imported module scope";
 
 <GET>
   <p>{message}</p>
 </GET>
-`);
+`,
+    );
 
     const result = await compileElizabethEndpointFile(sourcePath, {
       root,
@@ -185,14 +200,17 @@ test("compileElizabethFile rewrites source-relative imports from generated serve
   try {
     await mkdir(join(root, "src/pages"), { recursive: true });
     await Bun.write(join(root, "src/db.ts"), "export const title = 'From db';\n");
-    await Bun.write(sourcePath, `
+    await Bun.write(
+      sourcePath,
+      `
 import { title } from "../db.ts";
 
 @default
 <Home>
   <h1>{title}</h1>
 </Home>
-`);
+`,
+    );
 
     const result = await compileElizabethFile(sourcePath, {
       root,
@@ -215,18 +233,26 @@ test("compileElizabethFile supports app alias imports from src", async () => {
   try {
     await mkdir(join(root, "src/pages"), { recursive: true });
     await mkdir(join(root, "src/components"), { recursive: true });
-    await Bun.write(join(root, "src/components/Button.liz"), `
+    await Bun.write(
+      join(root, "src/components/Button.liz"),
+      `
 @public
 <Button>
   <button>{children}</button>
 </Button>
-`);
-    await Bun.write(join(root, "src/components/Button.module.css"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/components/Button.module.css"),
+      `
 .primary {
   color: red;
 }
-`);
-    await Bun.write(sourcePath, `
+`,
+    );
+    await Bun.write(
+      sourcePath,
+      `
 import { Button } from "@/components/Button.liz";
 import styles from "@/components/Button.module.css";
 import { title } from "@/db.ts";
@@ -236,7 +262,8 @@ import { title } from "@/db.ts";
   <h1 className={styles.primary}>{title}</h1>
   <Button>Save</Button>
 </Home>
-`);
+`,
+    );
     await Bun.write(join(root, "src/db.ts"), "export const title = 'Alias import';\n");
 
     const result = await compileElizabethFile(sourcePath, {
@@ -264,14 +291,17 @@ test("compileElizabethEndpointFile rewrites ts endpoint source-relative and pack
   try {
     await mkdir(join(root, "src/api/posts"), { recursive: true });
     await Bun.write(join(root, "src/db.ts"), "export const slug = 'hello';\n");
-    await Bun.write(sourcePath, `
+    await Bun.write(
+      sourcePath,
+      `
 import { redirect } from "elizabeth/route";
 import { slug } from "../../db.ts";
 
 export function POST() {
   return redirect("/posts/" + slug, 303);
 }
-`);
+`,
+    );
 
     const result = await compileElizabethEndpointFile(sourcePath, {
       root,
@@ -297,13 +327,16 @@ test("compileElizabethEndpointFile supports app alias imports from ts endpoints"
   try {
     await mkdir(join(root, "src/api/posts"), { recursive: true });
     await Bun.write(join(root, "src/db.ts"), "export const slug = 'hello';\n");
-    await Bun.write(sourcePath, `
+    await Bun.write(
+      sourcePath,
+      `
 import { slug } from "@/db.ts";
 
 export function GET() {
   return Response.json({ slug });
 }
-`);
+`,
+    );
 
     const result = await compileElizabethEndpointFile(sourcePath, {
       root,
@@ -384,12 +417,12 @@ import { clientState } from "elizabeth/client";
 
   const todoList = result.clientComponents[0];
 
-  expect(todoList.states).toEqual([{ name: "todo", setter: "setTodo", initialValue: "[\"test\"]" }]);
+  expect(todoList.states).toEqual([{ name: "todo", setter: "setTodo", initialValue: '["test"]' }]);
   expect(todoList.htmlBindings).toHaveLength(1);
   expect(todoList.htmlBindings[0].reactive).toBe(true);
   expect(todoList.htmlBindings[0].source).toContain("for (const item of todo)");
   expect(todoList.htmlBindings[0].expression).toContain("for (const item of todo)");
-  expect(todoList.events).toEqual([{ id: 0, eventName: "click", handler: "() => setTodo([...todo, \"next\"])" }]);
+  expect(todoList.events).toEqual([{ id: 0, eventName: "click", handler: '() => setTodo([...todo, "next"])' }]);
 });
 
 test("compileElizabeth wires local child components inside client islands", () => {
@@ -494,7 +527,7 @@ import { clientState } from "elizabeth/client";
     { id: 2, title: "Ship example", done: true },
   ]`,
     },
-    { name: "filter", setter: "setFilter", initialValue: "\"all\"" },
+    { name: "filter", setter: "setFilter", initialValue: '"all"' },
   ]);
   expect(dashboard.textBindings.map((binding) => binding.expression)).toEqual([
     '(filter === "all" ? items : items.filter((item) => filter === "done" ? item.done : !item.done)).length',
@@ -513,7 +546,7 @@ import { clientState } from "elizabeth/client";
   ]);
   expect(dashboard.htmlBindings).toHaveLength(1);
   expect(dashboard.htmlBindings[0].source).toContain("for (const item of (visible))");
-  expect(dashboard.htmlBindings[0].expression).toContain("item.done ? \"done\" : \"open\"");
+  expect(dashboard.htmlBindings[0].expression).toContain('item.done ? "done" : "open"');
   expect(dashboard.htmlBindings[0].reactive).toBe(true);
   expect(dashboard.clientFunctions.map((fn) => fn.name)).toEqual(["addItem"]);
 });
@@ -660,10 +693,7 @@ import { clientState } from "elizabeth/client";
     "openCount",
     "doneCount",
   ]);
-  expect(board.events.map((event) => event.handler)).toEqual([
-    "() => addTask()",
-    "() => completeTask()",
-  ]);
+  expect(board.events.map((event) => event.handler)).toEqual(["() => addTask()", "() => completeTask()"]);
   expect(board.htmlBindings).toHaveLength(1);
   expect(board.htmlBindings[0].reactive).toBe(true);
 });
@@ -763,11 +793,14 @@ test("buildApiRoutes and matchApiRoute support dynamic params", async () => {
 
   try {
     await mkdir(join(root, "src/api/users"), { recursive: true });
-    await Bun.write(join(root, "src/api/users/[id].ts"), `
+    await Bun.write(
+      join(root, "src/api/users/[id].ts"),
+      `
 export function GET() {
   return Response.json({ ok: true });
 }
-`);
+`,
+    );
 
     const routes = await buildApiRoutes({
       root,
@@ -790,7 +823,9 @@ test("buildPageRoutes renders complex nested layouts with dynamic params", async
 
   try {
     await mkdir(join(root, "src/pages/docs/[section]/articles"), { recursive: true });
-    await Bun.write(join(root, "src/pages/layout.liz"), `
+    await Bun.write(
+      join(root, "src/pages/layout.liz"),
+      `
 @default
 <RootLayout>
   <html>
@@ -799,8 +834,11 @@ test("buildPageRoutes renders complex nested layouts with dynamic params", async
     </body>
   </html>
 </RootLayout>
-`);
-    await Bun.write(join(root, "src/pages/docs/layout.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/layout.liz"),
+      `
 @default
 <DocsLayout>
   <section data-layout="docs">
@@ -808,8 +846,11 @@ test("buildPageRoutes renders complex nested layouts with dynamic params", async
     {children}
   </section>
 </DocsLayout>
-`);
-    await Bun.write(join(root, "src/pages/docs/[section]/layout.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/[section]/layout.liz"),
+      `
 @default
 <SectionLayout>
   <section data-layout="section">
@@ -817,16 +858,22 @@ test("buildPageRoutes renders complex nested layouts with dynamic params", async
     {children}
   </section>
 </SectionLayout>
-`);
-    await Bun.write(join(root, "src/pages/docs/[section]/articles/layout.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/[section]/articles/layout.liz"),
+      `
 @default
 <ArticleLayout>
   <article data-layout="article-shell">
     {children}
   </article>
 </ArticleLayout>
-`);
-    await Bun.write(join(root, "src/pages/docs/[section]/articles/[slug].liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/[section]/articles/[slug].liz"),
+      `
 @default
 <ArticlePage>
   <main data-page="article">
@@ -834,7 +881,8 @@ test("buildPageRoutes renders complex nested layouts with dynamic params", async
     <p>{ctx.params.slug}</p>
   </main>
 </ArticlePage>
-`);
+`,
+    );
 
     const manifest = await buildPageRoutes({
       root,
@@ -873,54 +921,78 @@ test("buildPageRoutes supports hierarchical 404, error, and loading files", asyn
 
   try {
     await mkdir(join(root, "src/pages/docs/[section]"), { recursive: true });
-    await Bun.write(join(root, "src/pages/layout.liz"), `
+    await Bun.write(
+      join(root, "src/pages/layout.liz"),
+      `
 @default
 <RootLayout>
   <html><body>{children}</body></html>
 </RootLayout>
-`);
-    await Bun.write(join(root, "src/pages/404.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/404.liz"),
+      `
 @default
 <RootNotFound>
   <main>Global missing</main>
 </RootNotFound>
-`);
-    await Bun.write(join(root, "src/pages/error.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/error.liz"),
+      `
 @default
 <RootError>
   <main>Global error {ctx.error.message}</main>
 </RootError>
-`);
-    await Bun.write(join(root, "src/pages/loading.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/loading.liz"),
+      `
 @default
 <RootLoading>
   <main>Global loading</main>
 </RootLoading>
-`);
-    await Bun.write(join(root, "src/pages/docs/[section]/404.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/[section]/404.liz"),
+      `
 @default
 <DocsNotFound>
   <main>Docs missing {ctx.params.section}</main>
 </DocsNotFound>
-`);
-    await Bun.write(join(root, "src/pages/docs/[section]/error.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/[section]/error.liz"),
+      `
 @default
 <DocsError>
   <main>Docs error {ctx.params.section}: {ctx.error.message}</main>
 </DocsError>
-`);
-    await Bun.write(join(root, "src/pages/docs/[section]/loading.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/[section]/loading.liz"),
+      `
 @default
 <DocsLoading>
   <main>Docs loading {ctx.params.section}</main>
 </DocsLoading>
-`);
-    await Bun.write(join(root, "src/pages/docs/[section]/index.liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/docs/[section]/index.liz"),
+      `
 @default
 <DocsPage>
   <main>Docs {ctx.params.section}</main>
 </DocsPage>
-`);
+`,
+    );
 
     const manifest = await buildPageRoutes({
       root,
@@ -959,18 +1031,24 @@ test("buildPageRoutes and matchPageRoute support index and dynamic pages", async
 
   try {
     await mkdir(join(root, "src/pages/users"), { recursive: true });
-    await Bun.write(join(root, "src/pages/index.liz"), `
+    await Bun.write(
+      join(root, "src/pages/index.liz"),
+      `
 @default
 <Home>
   <main>Home</main>
 </Home>
-`);
-    await Bun.write(join(root, "src/pages/users/[id].liz"), `
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/users/[id].liz"),
+      `
 @default
 <UserPage>
   <main>User page</main>
 </UserPage>
-`);
+`,
+    );
 
     const manifest = await buildPageRoutes({
       root,

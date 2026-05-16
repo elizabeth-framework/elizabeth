@@ -1,6 +1,6 @@
-import { expect, test, describe } from "bun:test";
-import { createMemoryStore, rateLimit } from "../src/index.ts";
+import { describe, expect, test } from "bun:test";
 import { sleep } from "@elizabeth-js/async";
+import { createMemoryStore, rateLimit } from "../src/index.ts";
 
 describe("createMemoryStore()", () => {
   test("hits increment until window expires", async () => {

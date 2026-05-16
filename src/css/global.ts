@@ -21,9 +21,11 @@ const viteConfigCache = new Map<string, Promise<string | undefined>>();
 
 export async function importVite(): Promise<ViteLike> {
   const importModule = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>;
-  return await importModule("vite").catch((error) => {
-    throw new Error(`Vite is not installed. Install vite first. ${error instanceof Error ? error.message : String(error)}`);
-  }) as ViteLike;
+  return (await importModule("vite").catch((error) => {
+    throw new Error(
+      `Vite is not installed. Install vite first. ${error instanceof Error ? error.message : String(error)}`,
+    );
+  })) as ViteLike;
 }
 
 export async function defaultTailwindPlugins(root: string): Promise<unknown[]> {
@@ -45,7 +47,7 @@ export async function buildGlobalCssWithVite(options: GlobalCssBuildOptions): Pr
   const outDir = resolve(options.outDir);
   const cssEntry = resolve(root, "src/styles.css");
 
-  if (!await isFile(cssEntry)) {
+  if (!(await isFile(cssEntry))) {
     return [];
   }
 
@@ -69,12 +71,13 @@ export async function buildGlobalCssWithVite(options: GlobalCssBuildOptions): Pr
     },
   });
 
-  return (await findBuiltCssFiles(resolve(outDir, "assets"), joinPublicPath(options.publicPrefix, "assets")))
-    .map((path) => `/${path}`);
+  return (await findBuiltCssFiles(resolve(outDir, "assets"), joinPublicPath(options.publicPrefix, "assets"))).map(
+    (path) => `/${path}`,
+  );
 }
 
 async function findBuiltCssFiles(dir: string, prefix: string): Promise<string[]> {
-  if (!await isDir(dir)) {
+  if (!(await isDir(dir))) {
     return [];
   }
 
@@ -86,7 +89,7 @@ async function findBuiltCssFiles(dir: string, prefix: string): Promise<string[]>
     const publicPath = joinPublicPath(prefix, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(...await findBuiltCssFiles(path, publicPath));
+      files.push(...(await findBuiltCssFiles(path, publicPath)));
       continue;
     }
 
@@ -136,9 +139,13 @@ async function findViteConfigUncached(root: string): Promise<string | undefined>
 }
 
 async function isFile(path: string): Promise<boolean> {
-  return await stat(path).then((info) => info.isFile()).catch(() => false);
+  return await stat(path)
+    .then((info) => info.isFile())
+    .catch(() => false);
 }
 
 async function isDir(path: string): Promise<boolean> {
-  return await stat(path).then((info) => info.isDirectory()).catch(() => false);
+  return await stat(path)
+    .then((info) => info.isDirectory())
+    .catch(() => false);
 }

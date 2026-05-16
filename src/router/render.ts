@@ -17,7 +17,10 @@ export interface RenderPageRouteOptions {
   moduleCache?: RenderModuleCache;
 }
 
-export async function renderPageRoute(match: PageRouteMatch, options: RenderPageRouteOptions = {}): Promise<RenderRouteResult> {
+export async function renderPageRoute(
+  match: PageRouteMatch,
+  options: RenderPageRouteOptions = {},
+): Promise<RenderRouteResult> {
   const ctx = { params: match.params, error: match.error };
   const page = await importRenderModule(match.route.outputPath, options.moduleCache);
   let html = await page.default({}, ctx);
@@ -29,9 +32,12 @@ export async function renderPageRoute(match: PageRouteMatch, options: RenderPage
   for (let index = match.route.layouts.length - 1; index >= 0; index--) {
     const layout = match.route.layouts[index];
     const module = await importRenderModule(layout.outputPath, options.moduleCache);
-    html = await module.default({
-      children: routeBoundary(boundaryKey(layout.sourcePath, match.params, index), html),
-    }, ctx);
+    html = await module.default(
+      {
+        children: routeBoundary(boundaryKey(layout.sourcePath, match.params, index), html),
+      },
+      ctx,
+    );
 
     if (isRedirectResult(html) || isNotFoundResult(html)) {
       return html;
@@ -45,7 +51,7 @@ async function importRenderModule(path: string, cache?: RenderModuleCache): Prom
   const href = pathToFileURL(path).href;
 
   if (!cache) {
-    return await import(href) as RenderModule;
+    return (await import(href)) as RenderModule;
   }
 
   let pending = cache.get(path);
@@ -61,14 +67,17 @@ async function importRenderModule(path: string, cache?: RenderModuleCache): Prom
 function dedupeElizabethStyles(html: string): string {
   const seen = new Set<string>();
 
-  return html.replace(/<style\b([^>]*\sdata-elizabeth-style=(["'])(.*?)\2[^>]*)>[\s\S]*?<\/style>/g, (style, _attrs: string, _quote: string, id: string) => {
-    if (seen.has(id)) {
-      return "";
-    }
+  return html.replace(
+    /<style\b([^>]*\sdata-elizabeth-style=(["'])(.*?)\2[^>]*)>[\s\S]*?<\/style>/g,
+    (style, _attrs: string, _quote: string, id: string) => {
+      if (seen.has(id)) {
+        return "";
+      }
 
-    seen.add(id);
-    return style;
-  });
+      seen.add(id);
+      return style;
+    },
+  );
 }
 
 function routeBoundary(key: string, html: string): string {

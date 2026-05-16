@@ -1,5 +1,5 @@
-import chokidar, { type FSWatcher } from "chokidar";
 import { relative, resolve } from "node:path";
+import chokidar, { type FSWatcher } from "chokidar";
 
 export type HmrMessage =
   | { type: "connected" }
@@ -124,11 +124,14 @@ export function createHmrRuntime(options: HmrOptions): HmrRuntime {
       clearTimeout(previous);
     }
 
-    pendingChanges.set(key, setTimeout(() => {
-      pendingChanges.delete(key);
-      const message = type === "addDir" || type === "unlinkDir" ? null : messageFor(path);
-      broadcast({ type, path, message });
-    }, 35));
+    pendingChanges.set(
+      key,
+      setTimeout(() => {
+        pendingChanges.delete(key);
+        const message = type === "addDir" || type === "unlinkDir" ? null : messageFor(path);
+        broadcast({ type, path, message });
+      }, 35),
+    );
   }
 
   function messageFor(path: string): HmrMessage {

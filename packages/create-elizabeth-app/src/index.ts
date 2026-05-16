@@ -23,8 +23,8 @@ async function createApp(options: CreateOptions): Promise<void> {
   console.log(`Created Elizabeth app in ${target}`);
   console.log("");
   console.log("Installing dependencies...");
-  
-  // @ts-ignore - Bun types in CI might be outdated and missing spawn
+
+  // @ts-expect-error - Bun types in CI might be outdated and missing spawn
   const proc = Bun.spawn(["bun", "install"], {
     cwd: target,
     stdout: "inherit",
@@ -83,24 +83,31 @@ function shouldSkipTemplateEntry(name: string): boolean {
 }
 
 async function writeGeneratedPackageJson(target: string, options: CreateOptions): Promise<void> {
-  await writeFile(resolve(target, "package.json"), `${JSON.stringify({
-    name: options.packageName,
-    version: "0.0.1",
-    type: "module",
-    scripts: {
-      dev: "elizabeth dev",
-      build: "elizabeth build",
-      start: "bun dist/server.js",
-      check: "tsc --noEmit",
-    },
-    dependencies: {
-      elizabeth: options.elizabethSpecifier,
-    },
-    devDependencies: {
-      typescript: "^6.0.3",
-      vite: "^8.0.10",
-    },
-  }, null, 2)}\n`);
+  await writeFile(
+    resolve(target, "package.json"),
+    `${JSON.stringify(
+      {
+        name: options.packageName,
+        version: "0.0.1",
+        type: "module",
+        scripts: {
+          dev: "elizabeth dev",
+          build: "elizabeth build",
+          start: "bun dist/server.js",
+          check: "tsc --noEmit",
+        },
+        dependencies: {
+          elizabeth: options.elizabethSpecifier,
+        },
+        devDependencies: {
+          typescript: "^6.0.3",
+          vite: "^8.0.10",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 async function assertWritableTarget(target: string, force: boolean): Promise<void> {
@@ -150,14 +157,16 @@ function readOption(args: string[], name: string): string | null {
   }
 
   const index = args.indexOf(name);
-  return index === -1 ? null : args[index + 1] ?? null;
+  return index === -1 ? null : (args[index + 1] ?? null);
 }
 
 function packageNameFor(targetDir: string, cwd: string): string {
-  return basename(resolve(cwd, targetDir))
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^[._-]+|[._-]+$/g, "") || "elizabeth-app";
+  return (
+    basename(resolve(cwd, targetDir))
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^[._-]+|[._-]+$/g, "") || "elizabeth-app"
+  );
 }
 
 function defaultElizabethSpecifier(): string {

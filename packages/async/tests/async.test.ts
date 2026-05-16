@@ -1,5 +1,5 @@
-import { expect, test, describe } from "bun:test";
-import { TimeoutError, retry, sleep, withTimeout } from "../src/index.ts";
+import { describe, expect, test } from "bun:test";
+import { retry, sleep, TimeoutError, withTimeout } from "../src/index.ts";
 
 describe("sleep()", () => {
   test("resolves after at least the given duration", async () => {

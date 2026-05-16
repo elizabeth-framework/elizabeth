@@ -33,9 +33,10 @@ for (const pathname of smokePaths) {
 
   try {
     const result = await renderPageRoute(match);
-    html = isNotFoundResult(result) && manifest.notFound
-      ? formatResult(await renderPageRoute({ route: manifest.notFound, params: {} }))
-      : formatResult(result);
+    html =
+      isNotFoundResult(result) && manifest.notFound
+        ? formatResult(await renderPageRoute({ route: manifest.notFound, params: {} }))
+        : formatResult(result);
   } catch (error) {
     html = error instanceof Error ? `ERROR: ${error.message}` : `ERROR: ${String(error)}`;
   }

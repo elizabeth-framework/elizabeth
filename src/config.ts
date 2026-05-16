@@ -1,6 +1,6 @@
+import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { stat } from "node:fs/promises";
 
 export interface RouteRoot {
   dir: string;
@@ -31,9 +31,8 @@ export async function loadElizabethConfig(root: string): Promise<ElizabethConfig
     return cached.result;
   }
 
-  const userConfig = mtime === null
-    ? {}
-    : (await import(`${pathToFileURL(configPath).href}?t=${mtime}`)).default ?? {};
+  const userConfig =
+    mtime === null ? {} : ((await import(`${pathToFileURL(configPath).href}?t=${mtime}`)).default ?? {});
 
   const pageRoutes = normalizeRouteRoots(normalizedRoot, userConfig.pageRoutes, { "src/pages": "/" });
   const apiRoutes = normalizeRouteRoots(normalizedRoot, userConfig.apiRoutes, { "src/api": "/api" });
@@ -116,9 +115,9 @@ function warnDuplicateRouteRootField(
 
     console.warn(
       `Elizabeth config warning: duplicate ${name} ${field} ${JSON.stringify(value)}.\n` +
-      `  first:  ${formatRouteRoot(previous)}\n` +
-      `  second: ${formatRouteRoot(root)}\n` +
-      "  Route roots should map one directory to one unique base path; duplicate routes can shadow each other.",
+        `  first:  ${formatRouteRoot(previous)}\n` +
+        `  second: ${formatRouteRoot(root)}\n` +
+        "  Route roots should map one directory to one unique base path; duplicate routes can shadow each other.",
     );
   }
 }

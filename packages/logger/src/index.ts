@@ -27,7 +27,7 @@ const levelOrder: Record<LogLevel, number> = {
 function defaultLevel(): LogLevel {
   const explicit = env("ELIZABETH_LOG");
 
-  if (explicit && (explicit in levelOrder)) {
+  if (explicit && explicit in levelOrder) {
     return explicit as LogLevel;
   }
 
@@ -45,9 +45,7 @@ export function createLogger(namespace: string, options: LoggerOptions = {}): Lo
   const threshold = levelOrder[level];
 
   function format(args: unknown[]): unknown[] {
-    const prefix = useTimestamp
-      ? `[${new Date().toISOString()}] [${namespace}]`
-      : `[${namespace}]`;
+    const prefix = useTimestamp ? `[${new Date().toISOString()}] [${namespace}]` : `[${namespace}]`;
     return [prefix, ...args];
   }
 
