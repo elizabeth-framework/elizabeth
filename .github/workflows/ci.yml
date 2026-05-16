@@ -25,10 +25,10 @@ jobs:
           bun-version: latest
 
       - name: Install root dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Install test-app dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
         working-directory: tests/test-app
 
       - name: Typecheck
