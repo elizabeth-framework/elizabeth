@@ -115,6 +115,35 @@ export default {
 
 When a shared layout exists, Elizabeth enhances same-origin link clicks by fetching the next page and swapping only the layout child boundary.
 
+### `<head>`
+
+Elizabeth does **not** inject an HTML document for you. The root layout owns the entire `<html>` shell — including `<head>`. Anything you write inside `<head>` in your root layout is what the browser sees:
+
+```liz
+@default
+<RootLayout>
+  <html lang="en">
+    <head>
+      <title>My Site</title>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="description" content="A small Elizabeth app" />
+      <link rel="icon" href="/favicon.svg" />
+    </head>
+    <body>{children}</body>
+  </html>
+</RootLayout>
+```
+
+Notes:
+
+- `<!doctype html>` is prepended automatically — don't write it yourself.
+- The dev server injects its HMR/island bootstrap `<script>` and CSS links into your `</head>`. If `</head>` is missing, they get prepended to the document instead, so always provide a `<head>` to keep things tidy.
+- **Nested layouts are body partials.** They render inside the root layout's `<body>` via `{children}`, so don't put `<html>` / `<head>` / `<body>` inside them — keep that in the root layout only.
+- **Per-route titles.** Client-side link navigation already syncs `document.title` from the new page, so each route's root layout `<title>` is honored after navigation. For section-specific titles within the same root layout, the simplest pattern today is a small `@client` component that runs `document.title = ...`.
+
+Scoped component `<style>` blocks emit inline in the body next to the markup they target — you don't need to put them in `<head>`.
+
 ## Client Islands
 
 Use `@client` for browser-interactive components:
