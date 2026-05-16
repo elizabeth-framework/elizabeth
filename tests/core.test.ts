@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { compileElizabeth } from "../src/compiler/compile.ts";
 import { compileElizabethEndpointFile, compileElizabethFile } from "../src/compiler/file.ts";
 import { loadElizabethConfig } from "../src/config.ts";
+import { createElizabethDevHandler, formatRouteSummary, type RouteSummary } from "../src/dev/app.ts";
 import { buildApiRoutes, matchApiRoute } from "../src/router/api.ts";
 import { buildPageRoutes, matchPageRoute, matchSpecialPageRoute } from "../src/router/pages.ts";
 import { renderPageRoute } from "../src/router/render.ts";
@@ -1063,6 +1064,151 @@ test("buildPageRoutes and matchPageRoute support index and dynamic pages", async
     expect(homeMatch?.params).toEqual({});
     expect(userMatch?.params).toEqual({ id: "ada" });
     expect(matchPageRoute(manifest.routes, "/users")).toBeNull();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("formatRouteSummary renders pages, apis, and boundary counts", () => {
+  const summary: RouteSummary = {
+    pages: [
+      { path: "/", sourcePath: "/tmp/app/src/pages/index.liz" },
+      { path: "/about", sourcePath: "/tmp/app/src/pages/about.liz" },
+    ],
+    apis: [
+      { path: "/api/hello", methods: ["GET"], sourcePath: "/tmp/app/src/api/hello.ts" },
+      { path: "/api/posts", methods: ["GET", "POST"], sourcePath: "/tmp/app/src/api/posts.ts" },
+    ],
+    specials: { notFound: 1, error: 1, loading: 0 },
+  };
+
+  const output = formatRouteSummary(summary);
+  expect(output).toContain("Routes (2 pages, 2 apis)");
+  expect(output).toContain("Pages");
+  expect(output).toContain("/");
+  expect(output).toContain("/about");
+  expect(output).toContain("API");
+  expect(output).toContain("GET");
+  expect(output).toContain("GET,POST");
+  expect(output).toContain("/api/hello");
+  expect(output).toContain("Boundaries: 1 404, 1 error");
+});
+
+test("formatRouteSummary uses singular forms and omits empty sections", () => {
+  const summary: RouteSummary = {
+    pages: [{ path: "/", sourcePath: "/tmp/app/src/pages/index.liz" }],
+    apis: [],
+    specials: { notFound: 0, error: 0, loading: 0 },
+  };
+
+  const output = formatRouteSummary(summary);
+  expect(output).toContain("Routes (1 page, 0 apis)");
+  expect(output).toContain("Pages");
+  expect(output).not.toContain("API\n");
+  expect(output).not.toContain("Boundaries");
+});
+
+test("formatRouteSummary truncates long route lists and shows overflow note", () => {
+  const pages = Array.from({ length: 30 }, (_, i) => ({
+    path: `/page-${i}`,
+    sourcePath: `/tmp/app/src/pages/page-${i}.liz`,
+  }));
+  const apis = Array.from({ length: 25 }, (_, i) => ({
+    path: `/api/route-${i}`,
+    methods: ["GET"],
+    sourcePath: `/tmp/app/src/api/route-${i}.ts`,
+  }));
+  const summary: RouteSummary = {
+    pages,
+    apis,
+    specials: { notFound: 0, error: 0, loading: 0 },
+  };
+
+  const output = formatRouteSummary(summary, { limit: 5 });
+  expect(output).toContain("Routes (30 pages, 25 apis)");
+  expect(output).toContain("/page-0");
+  expect(output).toContain("/page-4");
+  expect(output).not.toContain("/page-5");
+  expect(output).toContain("… and 25 more (set ELIZABETH_DEV_ROUTE_LIMIT to adjust)");
+  expect(output).toContain("/api/route-0");
+  expect(output).toContain("/api/route-4");
+  expect(output).not.toContain("/api/route-5");
+  expect(output).toContain("… and 20 more (set ELIZABETH_DEV_ROUTE_LIMIT to adjust)");
+});
+
+test("formatRouteSummary with limit <= 0 shows every route", () => {
+  const pages = Array.from({ length: 50 }, (_, i) => ({
+    path: `/page-${i}`,
+    sourcePath: `/tmp/app/src/pages/page-${i}.liz`,
+  }));
+  const summary: RouteSummary = {
+    pages,
+    apis: [],
+    specials: { notFound: 0, error: 0, loading: 0 },
+  };
+
+  const output = formatRouteSummary(summary, { limit: 0 });
+  expect(output).toContain("/page-0");
+  expect(output).toContain("/page-49");
+  expect(output).not.toContain("… and");
+});
+
+test("createElizabethDevHandler.getRouteSummary reports discovered routes", async () => {
+  const root = await tempProject("route-summary");
+
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await mkdir(join(root, "src/api"), { recursive: true });
+
+    await Bun.write(
+      join(root, "src/pages/index.liz"),
+      `
+@default
+<Home>
+  <main>Home</main>
+</Home>
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/about.liz"),
+      `
+@default
+<About>
+  <main>About</main>
+</About>
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/404.liz"),
+      `
+@default
+<NotFound>
+  <main>404</main>
+</NotFound>
+`,
+    );
+    await Bun.write(
+      join(root, "src/api/hello.ts"),
+      `
+export function GET() {
+  return new Response("hi");
+}
+`,
+    );
+
+    const handler = createElizabethDevHandler({
+      root,
+      frameworkRoot: process.cwd(),
+      pagesDir: join(root, "src/pages"),
+      outDir: join(root, ".elizabeth"),
+    });
+
+    const summary = await handler.getRouteSummary();
+
+    expect(summary.pages.map((page) => page.path).sort()).toEqual(["/", "/about"]);
+    expect(summary.apis.map((api) => api.path)).toEqual(["/api/hello"]);
+    expect(summary.apis[0].methods).toContain("GET");
+    expect(summary.specials.notFound).toBe(1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
