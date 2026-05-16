@@ -1108,6 +1108,51 @@ test("formatRouteSummary uses singular forms and omits empty sections", () => {
   expect(output).not.toContain("Boundaries");
 });
 
+test("formatRouteSummary truncates long route lists and shows overflow note", () => {
+  const pages = Array.from({ length: 30 }, (_, i) => ({
+    path: `/page-${i}`,
+    sourcePath: `/tmp/app/src/pages/page-${i}.liz`,
+  }));
+  const apis = Array.from({ length: 25 }, (_, i) => ({
+    path: `/api/route-${i}`,
+    methods: ["GET"],
+    sourcePath: `/tmp/app/src/api/route-${i}.ts`,
+  }));
+  const summary: RouteSummary = {
+    pages,
+    apis,
+    specials: { notFound: 0, error: 0, loading: 0 },
+  };
+
+  const output = formatRouteSummary(summary, { limit: 5 });
+  expect(output).toContain("Routes (30 pages, 25 apis)");
+  expect(output).toContain("/page-0");
+  expect(output).toContain("/page-4");
+  expect(output).not.toContain("/page-5");
+  expect(output).toContain("… and 25 more (set ELIZABETH_DEV_ROUTE_LIMIT to adjust)");
+  expect(output).toContain("/api/route-0");
+  expect(output).toContain("/api/route-4");
+  expect(output).not.toContain("/api/route-5");
+  expect(output).toContain("… and 20 more (set ELIZABETH_DEV_ROUTE_LIMIT to adjust)");
+});
+
+test("formatRouteSummary with limit <= 0 shows every route", () => {
+  const pages = Array.from({ length: 50 }, (_, i) => ({
+    path: `/page-${i}`,
+    sourcePath: `/tmp/app/src/pages/page-${i}.liz`,
+  }));
+  const summary: RouteSummary = {
+    pages,
+    apis: [],
+    specials: { notFound: 0, error: 0, loading: 0 },
+  };
+
+  const output = formatRouteSummary(summary, { limit: 0 });
+  expect(output).toContain("/page-0");
+  expect(output).toContain("/page-49");
+  expect(output).not.toContain("… and");
+});
+
 test("createElizabethDevHandler.getRouteSummary reports discovered routes", async () => {
   const root = await tempProject("route-summary");
 

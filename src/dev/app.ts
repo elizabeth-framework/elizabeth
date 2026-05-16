@@ -913,10 +913,35 @@ Elizabeth dev server
 `);
 }
 
-export function formatRouteSummary(summary: RouteSummary): string {
+export interface FormatRouteSummaryOptions {
+  /** Maximum number of pages and apis to list. `0` or negative means no limit. Default: 20. */
+  limit?: number;
+}
+
+const DEFAULT_ROUTE_LIMIT = 20;
+
+function resolveRouteLimit(option: number | undefined): number {
+  if (typeof option === "number" && Number.isFinite(option)) {
+    return option;
+  }
+
+  const envValue = Bun.env.ELIZABETH_DEV_ROUTE_LIMIT;
+  if (envValue !== undefined && envValue !== "") {
+    const parsed = Number(envValue);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return DEFAULT_ROUTE_LIMIT;
+}
+
+export function formatRouteSummary(summary: RouteSummary, options: FormatRouteSummaryOptions = {}): string {
   const lines: string[] = [];
   const pageCount = summary.pages.length;
   const apiCount = summary.apis.length;
+  const limit = resolveRouteLimit(options.limit);
+  const applyLimit = limit > 0;
 
   lines.push(
     `Routes (${pageCount} ${pageCount === 1 ? "page" : "pages"}, ${apiCount} ${apiCount === 1 ? "api" : "apis"})`,
@@ -925,17 +950,27 @@ export function formatRouteSummary(summary: RouteSummary): string {
 
   if (summary.pages.length > 0) {
     lines.push("  Pages");
-    for (const page of summary.pages) {
+    const visiblePages = applyLimit ? summary.pages.slice(0, limit) : summary.pages;
+    for (const page of visiblePages) {
       lines.push(`    ${page.path}`);
+    }
+    const hiddenPages = summary.pages.length - visiblePages.length;
+    if (hiddenPages > 0) {
+      lines.push(`    … and ${hiddenPages} more (set ELIZABETH_DEV_ROUTE_LIMIT to adjust)`);
     }
     lines.push("");
   }
 
   if (summary.apis.length > 0) {
     lines.push("  API");
-    for (const api of summary.apis) {
+    const visibleApis = applyLimit ? summary.apis.slice(0, limit) : summary.apis;
+    for (const api of visibleApis) {
       const methods = api.methods.length > 0 ? api.methods.join(",") : "*";
       lines.push(`    ${methods.padEnd(20)} ${api.path}`);
+    }
+    const hiddenApis = summary.apis.length - visibleApis.length;
+    if (hiddenApis > 0) {
+      lines.push(`    … and ${hiddenApis} more (set ELIZABETH_DEV_ROUTE_LIMIT to adjust)`);
     }
     lines.push("");
   }
