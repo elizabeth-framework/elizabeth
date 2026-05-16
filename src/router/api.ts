@@ -1,8 +1,8 @@
 import { readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
-import { compileElizabethEndpointFile, createCompileGraphContext, type CompileGraphContext } from "../compiler/file.ts";
-import type { RouteRoot } from "../config.ts";
 import type { ProjectCache } from "../compiler/cache.ts";
+import { type CompileGraphContext, compileElizabethEndpointFile, createCompileGraphContext } from "../compiler/file.ts";
+import type { RouteRoot } from "../config.ts";
 
 export interface ApiRoute {
   path: string;
@@ -114,7 +114,7 @@ async function findApiFiles(dir: string): Promise<string[]> {
     const path = resolve(dir, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(...await findApiFiles(path));
+      files.push(...(await findApiFiles(path)));
       continue;
     }
 
@@ -172,16 +172,19 @@ function routeMatcherFor(path: string): { pattern: RegExp; paramNames: string[] 
   }
 
   const paramNames: string[] = [];
-  const pattern = path.split("/").map((segment) => {
-    const match = /^\[([A-Za-z_$][\w$]*)\]$/.exec(segment);
+  const pattern = path
+    .split("/")
+    .map((segment) => {
+      const match = /^\[([A-Za-z_$][\w$]*)\]$/.exec(segment);
 
-    if (match) {
-      paramNames.push(match[1]);
-      return "([^/]+)";
-    }
+      if (match) {
+        paramNames.push(match[1]);
+        return "([^/]+)";
+      }
 
-    return escapeRegExp(segment);
-  }).join("/");
+      return escapeRegExp(segment);
+    })
+    .join("/");
 
   return {
     pattern: new RegExp(`^${pattern}$`),

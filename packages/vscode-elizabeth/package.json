@@ -27,8 +27,13 @@
     "languages": [
       {
         "id": "elizabeth",
-        "extensions": [".liz"],
-        "aliases": ["Elizabeth", "liz"],
+        "extensions": [
+          ".liz"
+        ],
+        "aliases": [
+          "Elizabeth",
+          "liz"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -41,12 +46,16 @@
       {
         "scopeName": "elizabeth.injections.style",
         "path": "./syntaxes/elizabeth-style.tmLanguage.json",
-        "injectTo": ["source.elizabeth"]
+        "injectTo": [
+          "source.elizabeth"
+        ]
       },
       {
         "scopeName": "elizabeth.injections.tags",
         "path": "./syntaxes/elizabeth-tags.tmLanguage.json",
-        "injectTo": ["source.elizabeth"]
+        "injectTo": [
+          "source.elizabeth"
+        ]
       }
     ]
   },

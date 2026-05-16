@@ -99,11 +99,7 @@
         {
           "begin": "^\\s*(?=(const|let|var|function|async|await|if|else|for|while|switch|case|return|throw|try|catch|finally|import|export|type|interface|enum|class)\\b)",
           "end": "$",
-          "patterns": [
-            { "include": "#elizabeth-block" },
-            { "include": "#elizabeth-tags" },
-            { "include": "source.tsx" }
-          ]
+          "patterns": [{ "include": "#elizabeth-block" }, { "include": "#elizabeth-tags" }, { "include": "source.tsx" }]
         }
       ]
     },

@@ -1,32 +1,32 @@
-import type { LanguagePlugin, VirtualCode, CodeMapping } from '@volar/language-core';
-import { URI } from 'vscode-uri';
-import type * as ts from 'typescript';
+import type { CodeMapping, LanguagePlugin, VirtualCode } from "@volar/language-core";
+import type * as ts from "typescript";
+import type { URI } from "vscode-uri";
 
 export class LizVirtualCode implements VirtualCode {
-    id = 'root';
-    languageId = 'typescriptreact';
-    mappings!: CodeMapping[];
-    embeddedCodes: VirtualCode[] = [];
+  id = "root";
+  languageId = "typescriptreact";
+  mappings!: CodeMapping[];
+  embeddedCodes: VirtualCode[] = [];
 
-    constructor(public sourceSnapshot: ts.IScriptSnapshot) {
-        this.onSnapshotUpdated();
-    }
+  constructor(public sourceSnapshot: ts.IScriptSnapshot) {
+    this.onSnapshotUpdated();
+  }
 
-    public update(newSnapshot: ts.IScriptSnapshot) {
-        this.sourceSnapshot = newSnapshot;
-        this.onSnapshotUpdated();
-    }
+  public update(newSnapshot: ts.IScriptSnapshot) {
+    this.sourceSnapshot = newSnapshot;
+    this.onSnapshotUpdated();
+  }
 
-    get snapshot() {
-        return this.generatedSnapshot;
-    }
+  get snapshot() {
+    return this.generatedSnapshot;
+  }
 
-    private generatedSnapshot!: ts.IScriptSnapshot;
+  private generatedSnapshot!: ts.IScriptSnapshot;
 
-    private onSnapshotUpdated() {
-        const text = this.sourceSnapshot.getText(0, this.sourceSnapshot.getLength());
+  private onSnapshotUpdated() {
+    const text = this.sourceSnapshot.getText(0, this.sourceSnapshot.getLength());
 
-        const jsxTypes = `/// <reference lib="esnext" />
+    const jsxTypes = `/// <reference lib="esnext" />
 /// <reference lib="dom" />
 type ElizabethComponentProps = Record<string, any> & { children?: any };
 type ElizabethComponentContext = {
@@ -89,215 +89,213 @@ namespace JSX {
 export {};
 `;
 
-        let generatedText = jsxTypes;
-        this.mappings = [];
+    let generatedText = jsxTypes;
+    this.mappings = [];
 
-        const capabilities = {
-            verification: true,
-            completion: true,
-            semantic: true,
-            navigation: true,
-            structure: true,
-            format: true,
-        };
+    const capabilities = {
+      verification: true,
+      completion: true,
+      semantic: true,
+      navigation: true,
+      structure: true,
+      format: true,
+    };
 
-        const tagCapabilities = {
-            ...capabilities,
-            semantic: false,
-            semanticTokens: false,
-        };
+    const tagCapabilities = {
+      ...capabilities,
+      semantic: false,
+      semanticTokens: false,
+    };
 
-        const htmlCapabilities = {
-            ...capabilities,
-            verification: false,
-            semantic: true,
-            semanticTokens: true,
-        };
+    const htmlCapabilities = {
+      ...capabilities,
+      verification: false,
+      semantic: true,
+      semanticTokens: true,
+    };
 
-        const addMappedText = (sourceStart: number, content: string, data = capabilities) => {
-            if (!content.length) return;
+    const addMappedText = (sourceStart: number, content: string, data = capabilities) => {
+      if (!content.length) return;
 
-            this.mappings.push({
-                sourceOffsets: [sourceStart],
-                generatedOffsets: [generatedText.length],
-                lengths: [content.length],
-                data,
-            });
+      this.mappings.push({
+        sourceOffsets: [sourceStart],
+        generatedOffsets: [generatedText.length],
+        lengths: [content.length],
+        data,
+      });
 
-            generatedText += content;
-        };
+      generatedText += content;
+    };
 
-        let processedText = text;
-        const decoratorRegex = /@(public|default|declare|private|client)\b/g;
-        processedText = processedText.replace(decoratorRegex, match => ' '.repeat(match.length));
+    let processedText = text;
+    const decoratorRegex = /@(public|default|declare|private|client)\b/g;
+    processedText = processedText.replace(decoratorRegex, (match) => " ".repeat(match.length));
 
-        const componentRegex = /<([A-Z][a-zA-Z0-9_]*)\b[^>]*>/g;
-        let cursor = 0;
-        let match: RegExpExecArray | null;
+    const componentRegex = /<([A-Z][a-zA-Z0-9_]*)\b[^>]*>/g;
+    let cursor = 0;
+    let match: RegExpExecArray | null;
 
-        while ((match = componentRegex.exec(processedText)) !== null) {
-            const componentName = match[1]!;
-            const startTagIndex = match.index;
-            const startTagEndIndex = startTagIndex + match[0].length;
+    while ((match = componentRegex.exec(processedText)) !== null) {
+      const componentName = match[1]!;
+      const startTagIndex = match.index;
+      const startTagEndIndex = startTagIndex + match[0].length;
 
-            if (match[0].endsWith('/>')) {
-                continue;
-            }
+      if (match[0].endsWith("/>")) {
+        continue;
+      }
 
-            const closeTag = `</${componentName}>`;
-            const closeTagIndex = processedText.indexOf(closeTag, startTagEndIndex);
+      const closeTag = `</${componentName}>`;
+      const closeTagIndex = processedText.indexOf(closeTag, startTagEndIndex);
 
-            if (closeTagIndex === -1) {
-                continue;
-            }
+      if (closeTagIndex === -1) {
+        continue;
+      }
 
-            addMappedText(cursor, processedText.substring(cursor, startTagIndex));
+      addMappedText(cursor, processedText.substring(cursor, startTagIndex));
 
-            const beforeComponent = text.slice(Math.max(0, startTagIndex - 80), startTagIndex);
+      const beforeComponent = text.slice(Math.max(0, startTagIndex - 80), startTagIndex);
 
-            const hasDefault = /@default\b/.test(beforeComponent);
-            const hasPublic = /@public\b/.test(beforeComponent);
-            const hasDeclare = /@declare\b/.test(beforeComponent);
+      const hasDefault = /@default\b/.test(beforeComponent);
+      const hasPublic = /@public\b/.test(beforeComponent);
+      const hasDeclare = /@declare\b/.test(beforeComponent);
 
-            if (hasDefault) {
-                generatedText += 'export default function ';
-            } else if (hasPublic || hasDeclare) {
-                generatedText += 'export function ';
-            } else {
-                generatedText += 'function ';
-            }
+      if (hasDefault) {
+        generatedText += "export default function ";
+      } else if (hasPublic || hasDeclare) {
+        generatedText += "export function ";
+      } else {
+        generatedText += "function ";
+      }
 
-            const nameStart = startTagIndex + 1;
-            this.mappings.push({
-                sourceOffsets: [nameStart],
-                generatedOffsets: [generatedText.length],
-                lengths: [componentName.length],
-                data: tagCapabilities,
-            });
+      const nameStart = startTagIndex + 1;
+      this.mappings.push({
+        sourceOffsets: [nameStart],
+        generatedOffsets: [generatedText.length],
+        lengths: [componentName.length],
+        data: tagCapabilities,
+      });
 
-            generatedText += componentName;
-            generatedText += '(props: ElizabethComponentProps = {}, ctx: ElizabethComponentContext = { params: {} }) {';
-            generatedText += this.componentPropsStatement(match[0]);
+      generatedText += componentName;
+      generatedText += "(props: ElizabethComponentProps = {}, ctx: ElizabethComponentContext = { params: {} }) {";
+      generatedText += this.componentPropsStatement(match[0]);
 
-            const body = processedText.substring(startTagEndIndex, closeTagIndex);
-            const firstHtmlMatch = /<[a-z]/.exec(body);
+      const body = processedText.substring(startTagEndIndex, closeTagIndex);
+      const firstHtmlMatch = /<[a-z]/.exec(body);
 
-            if (firstHtmlMatch) {
-                const logic = body.substring(0, firstHtmlMatch.index);
-                addMappedText(startTagEndIndex, logic);
+      if (firstHtmlMatch) {
+        const logic = body.substring(0, firstHtmlMatch.index);
+        addMappedText(startTagEndIndex, logic);
 
-                generatedText += 'return (<>';
+        generatedText += "return (<>";
 
-                const html = body.substring(firstHtmlMatch.index);
-                addMappedText(startTagEndIndex + firstHtmlMatch.index, html, htmlCapabilities);
+        const html = body.substring(firstHtmlMatch.index);
+        addMappedText(startTagEndIndex + firstHtmlMatch.index, html, htmlCapabilities);
 
-                generatedText += '</>);';
-            } else {
-                addMappedText(startTagEndIndex, body);
-            }
+        generatedText += "</>);";
+      } else {
+        addMappedText(startTagEndIndex, body);
+      }
 
-            generatedText += '}';
+      generatedText += "}";
 
-            cursor = closeTagIndex + closeTag.length;
-            componentRegex.lastIndex = cursor;
-        }
-
-        addMappedText(cursor, processedText.substring(cursor));
-
-        this.embeddedCodes = [];
-
-        const styleRegex = /(^[ \t]*<style\b[^>]*>)([\s\S]*?)(^[ \t]*<\/style>)/gm;
-        let styleMatch;
-        let styleIndex = 0;
-
-        while ((styleMatch = styleRegex.exec(text)) !== null) {
-            const styleContent = styleMatch[2]!;
-            const startOffset = styleMatch.index + styleMatch[1]!.length;
-
-            this.embeddedCodes.push({
-                id: `style_${styleIndex++}`,
-                languageId: 'css',
-                snapshot: {
-                    getText: (start, end) => styleContent.substring(start, end),
-                    getLength: () => styleContent.length,
-                    getChangeRange: () => undefined,
-                },
-                mappings: [{
-                    sourceOffsets: [startOffset],
-                    generatedOffsets: [0],
-                    lengths: [styleContent.length],
-                    data: {
-                        verification: true,
-                        completion: true,
-                        semantic: true,
-                        navigation: true,
-                        structure: true,
-                        format: true,
-                    },
-                }],
-                embeddedCodes: [],
-            });
-        }
-
-        const finalGeneratedText = generatedText.replace(
-            /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/g,
-            (_full, open, css, close) => `${open}${' '.repeat(css.length)}${close}`
-        );
-
-        this.generatedSnapshot = {
-            getText: (start, end) => finalGeneratedText.substring(start, end),
-            getLength: () => finalGeneratedText.length,
-            getChangeRange: () => undefined,
-        };
+      cursor = closeTagIndex + closeTag.length;
+      componentRegex.lastIndex = cursor;
     }
 
-    private componentPropsStatement(openTag: string): string {
-        const attrs = openTag
-            .replace(/^<[A-Z][a-zA-Z0-9_]*/, '')
-            .replace(/\/?>$/, '');
-        const props: string[] = [];
-        const propPattern = /\s([A-Za-z_$][\w$]*)(?=$|\s|=)/g;
-        let propMatch: RegExpExecArray | null;
+    addMappedText(cursor, processedText.substring(cursor));
 
-        while ((propMatch = propPattern.exec(attrs)) !== null) {
-            const name = propMatch[1]!;
+    this.embeddedCodes = [];
 
-            if (!props.includes(name)) {
-                props.push(name);
-            }
-        }
+    const styleRegex = /(^[ \t]*<style\b[^>]*>)([\s\S]*?)(^[ \t]*<\/style>)/gm;
+    let styleMatch;
+    let styleIndex = 0;
 
-        if (!props.includes('children')) {
-            props.push('children');
-        }
+    while ((styleMatch = styleRegex.exec(text)) !== null) {
+      const styleContent = styleMatch[2]!;
+      const startOffset = styleMatch.index + styleMatch[1]!.length;
 
-        return props.length > 0
-            ? `const { ${props.join(', ')} } = props;`
-            : '';
+      this.embeddedCodes.push({
+        id: `style_${styleIndex++}`,
+        languageId: "css",
+        snapshot: {
+          getText: (start, end) => styleContent.substring(start, end),
+          getLength: () => styleContent.length,
+          getChangeRange: () => undefined,
+        },
+        mappings: [
+          {
+            sourceOffsets: [startOffset],
+            generatedOffsets: [0],
+            lengths: [styleContent.length],
+            data: {
+              verification: true,
+              completion: true,
+              semantic: true,
+              navigation: true,
+              structure: true,
+              format: true,
+            },
+          },
+        ],
+        embeddedCodes: [],
+      });
     }
+
+    const finalGeneratedText = generatedText.replace(
+      /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/g,
+      (_full, open, css, close) => `${open}${" ".repeat(css.length)}${close}`,
+    );
+
+    this.generatedSnapshot = {
+      getText: (start, end) => finalGeneratedText.substring(start, end),
+      getLength: () => finalGeneratedText.length,
+      getChangeRange: () => undefined,
+    };
+  }
+
+  private componentPropsStatement(openTag: string): string {
+    const attrs = openTag.replace(/^<[A-Z][a-zA-Z0-9_]*/, "").replace(/\/?>$/, "");
+    const props: string[] = [];
+    const propPattern = /\s([A-Za-z_$][\w$]*)(?=$|\s|=)/g;
+    let propMatch: RegExpExecArray | null;
+
+    while ((propMatch = propPattern.exec(attrs)) !== null) {
+      const name = propMatch[1]!;
+
+      if (!props.includes(name)) {
+        props.push(name);
+      }
+    }
+
+    if (!props.includes("children")) {
+      props.push("children");
+    }
+
+    return props.length > 0 ? `const { ${props.join(", ")} } = props;` : "";
+  }
 }
 
 export const lizLanguagePlugin: LanguagePlugin<URI, LizVirtualCode> = {
-    getLanguageId(uri: URI) {
-        if (uri.path.endsWith('.liz') || uri.fsPath.endsWith('.liz')) return 'elizabeth';
+  getLanguageId(uri: URI) {
+    if (uri.path.endsWith(".liz") || uri.fsPath.endsWith(".liz")) return "elizabeth";
+  },
+  createVirtualCode(fileId, languageId, snapshot) {
+    if (languageId === "elizabeth") {
+      return new LizVirtualCode(snapshot);
+    }
+  },
+  updateVirtualCode(fileId, virtualCode, snapshot) {
+    virtualCode.update(snapshot);
+    return virtualCode;
+  },
+  typescript: {
+    extraFileExtensions: [{ extension: "liz", isMixedContent: true, scriptKind: 4 }],
+    getServiceScript(root) {
+      return {
+        code: root,
+        extension: ".tsx",
+        scriptKind: 4,
+      };
     },
-    createVirtualCode(fileId, languageId, snapshot) {
-        if (languageId === 'elizabeth') {
-            return new LizVirtualCode(snapshot);
-        }
-    },
-    updateVirtualCode(fileId, virtualCode, snapshot) {
-        virtualCode.update(snapshot);
-        return virtualCode;
-    },
-    typescript: {
-        extraFileExtensions: [{ extension: 'liz', isMixedContent: true, scriptKind: 4 }],
-        getServiceScript(root) {
-            return {
-                code: root,
-                extension: '.tsx',
-                scriptKind: 4,
-            };
-        },
-    },
+  },
 };

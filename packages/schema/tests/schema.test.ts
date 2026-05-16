@@ -1,11 +1,11 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   SchemaValidationError,
+  type StandardSchemaV1,
   safeValidate,
   validate,
   validateBody,
   validateSearchParams,
-  type StandardSchemaV1,
 } from "../src/index.ts";
 
 const numberSchema: StandardSchemaV1<unknown, number> = {

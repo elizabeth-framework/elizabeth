@@ -57,7 +57,7 @@ function readOption(args: string[], name: string): string | null {
   }
 
   const index = args.findIndex((arg) => arg === name);
-  return index === -1 ? null : args[index + 1] ?? null;
+  return index === -1 ? null : (args[index + 1] ?? null);
 }
 
 function printHelp(): void {

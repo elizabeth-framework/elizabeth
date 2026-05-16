@@ -37,11 +37,16 @@ declare module "node:fs/promises" {
   export function copyFile(source: string, destination: string): Promise<void>;
   export function readFile(path: string, encoding: "utf8"): Promise<string>;
   export function readdir(path: string): Promise<string[]>;
-  export function readdir(path: string, options: { withFileTypes: true }): Promise<Array<{
-    name: string;
-    isDirectory(): boolean;
-    isFile(): boolean;
-  }>>;
+  export function readdir(
+    path: string,
+    options: { withFileTypes: true },
+  ): Promise<
+    Array<{
+      name: string;
+      isDirectory(): boolean;
+      isFile(): boolean;
+    }>
+  >;
   export function rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
   export function stat(path: string): Promise<{
     mtimeMs: number;

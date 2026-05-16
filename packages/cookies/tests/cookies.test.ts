@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { deleteCookie, getCookie, parseCookies, serializeCookie, setCookie } from "../src/index.ts";
 
 describe("parseCookies()", () => {
@@ -7,8 +7,7 @@ describe("parseCookies()", () => {
   });
 
   test("parses multiple cookies and decodes values", () => {
-    expect(parseCookies("foo=bar; greeting=hi%20there"))
-      .toEqual({ foo: "bar", greeting: "hi there" });
+    expect(parseCookies("foo=bar; greeting=hi%20there")).toEqual({ foo: "bar", greeting: "hi there" });
   });
 
   test("handles quoted values", () => {

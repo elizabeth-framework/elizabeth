@@ -20,16 +20,11 @@ interface CodeFrameLine {
   active: boolean;
 }
 
-
-
 // TODO: improve error page more modern and more beautiful :)
 export function renderDevError(error: unknown, pathname: string): string {
   const normalized = normalizeError(error);
   const messageFrame = frameFromLizLocationMessage(normalized.message);
-  const frames = [
-    ...(messageFrame ? [messageFrame] : []),
-    ...parseStackFrames(normalized.stack),
-  ];
+  const frames = [...(messageFrame ? [messageFrame] : []), ...parseStackFrames(normalized.stack)];
   const visibleFrames = frames.filter((frame) => !frame.internal);
   const primary = visibleFrames[0] ?? frames[0] ?? null;
 
@@ -128,9 +123,15 @@ function renderPrimary(frame: TraceFrame): string {
 
 function renderFrame(frame: TraceFrame): string {
   const location = formatFrameLocation(frame);
-  const code = frame.codeFrame.length > 0
-    ? frame.codeFrame.map((line) => `<span class="line${line.active ? " active" : ""}"><span class="line-number">${line.line}</span><span>${escapeHtml(line.content || " ")}</span></span>`).join("\n")
-    : `<span class="line"><span class="line-number"></span><span>No source preview available.</span></span>`;
+  const code =
+    frame.codeFrame.length > 0
+      ? frame.codeFrame
+          .map(
+            (line) =>
+              `<span class="line${line.active ? " active" : ""}"><span class="line-number">${line.line}</span><span>${escapeHtml(line.content || " ")}</span></span>`,
+          )
+          .join("\n")
+      : `<span class="line"><span class="line-number"></span><span>No source preview available.</span></span>`;
 
   return `<details open>
     <summary>${escapeHtml(frame.functionName)} <span>${escapeHtml(location)}</span></summary>
@@ -174,14 +175,16 @@ function parseStackFrames(stack: string): TraceFrame[] {
     const sourceColumn = source?.column ?? null;
     const previewFile = source?.file ?? parsed.file;
 
-    return [{
-      ...parsed,
-      displayFile,
-      sourceLine,
-      sourceColumn,
-      codeFrame: codeFrameFor(previewFile, sourceLine ?? parsed.line),
-      internal: isInternalFrame(parsed.file),
-    }];
+    return [
+      {
+        ...parsed,
+        displayFile,
+        sourceLine,
+        sourceColumn,
+        codeFrame: codeFrameFor(previewFile, sourceLine ?? parsed.line),
+        internal: isInternalFrame(parsed.file),
+      },
+    ];
   });
 }
 
@@ -209,7 +212,9 @@ function frameFromLizLocationMessage(message: string): TraceFrame | null {
   };
 }
 
-function parseStackLine(line: string): Omit<TraceFrame, "displayFile" | "sourceLine" | "sourceColumn" | "codeFrame" | "internal"> | null {
+function parseStackLine(
+  line: string,
+): Omit<TraceFrame, "displayFile" | "sourceLine" | "sourceColumn" | "codeFrame" | "internal"> | null {
   const withFunction = /^\s*at\s+(.+?)\s+\((.+):(\d+):(\d+)\)$/.exec(line);
 
   if (withFunction) {
@@ -235,7 +240,11 @@ function parseStackLine(line: string): Omit<TraceFrame, "displayFile" | "sourceL
   };
 }
 
-function sourceForGeneratedFrame(file: string, line: number, column: number): { file: string; displayFile: string; line: number; column: number } | null {
+function sourceForGeneratedFrame(
+  file: string,
+  line: number,
+  column: number,
+): { file: string; displayFile: string; line: number; column: number } | null {
   const normalized = file.replaceAll("\\", "/");
   const marker = "/.elizabeth/";
   const markerIndex = normalized.indexOf(marker);
@@ -388,9 +397,11 @@ function compactPath(file: string): string {
 function isInternalFrame(file: string): boolean {
   const normalized = file.replaceAll("\\", "/");
 
-  return normalized.includes("/node_modules/")
-    || normalized.includes("/src/compiler/")
-    || normalized.includes("/src/router/")
-    || normalized.includes("/src/dev/")
-    || normalized.includes("/src/runtime/");
+  return (
+    normalized.includes("/node_modules/") ||
+    normalized.includes("/src/compiler/") ||
+    normalized.includes("/src/router/") ||
+    normalized.includes("/src/dev/") ||
+    normalized.includes("/src/runtime/")
+  );
 }

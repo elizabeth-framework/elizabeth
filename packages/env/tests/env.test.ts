@@ -1,4 +1,4 @@
-import { expect, test, describe, afterEach } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { env, envFlag, envInt, isDev, isProduction, isTest, requireEnv } from "../src/index.ts";
 
 const keys = ["ELIZA_T_KEY", "ELIZA_T_FLAG", "ELIZA_T_INT", "NODE_ENV"];

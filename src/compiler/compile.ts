@@ -1,7 +1,7 @@
 import { parseSync } from "oxc-parser";
 import type {
-  ClientEvent,
   ClientAttributeBinding,
+  ClientEvent,
   ClientFunction,
   ClientHtmlBinding,
   ClientStateBinding,
@@ -22,18 +22,15 @@ export interface EndpointCompileResult {
   methods: string[];
 }
 
-const decorators = new Set<ComponentVisibility>([
-  "declare",
-  "public",
-  "default",
-  "private",
-]);
+const decorators = new Set<ComponentVisibility>(["declare", "public", "default", "private"]);
 
-const componentModifiers = new Set([
-  "client",
-]);
+const componentModifiers = new Set(["client"]);
 
-export function compileElizabeth(source: string, sourceName = "anonymous.liz", options: CompileOptions = {}): CompileResult {
+export function compileElizabeth(
+  source: string,
+  sourceName = "anonymous.liz",
+  options: CompileOptions = {},
+): CompileResult {
   const components: ComponentBlock[] = [];
   const moduleParts: string[] = [];
   const moduleClientFunctions = findModuleClientFunctions(source, sourceName);
@@ -60,15 +57,26 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
     if (isElizabethComponentStart(source, index)) {
       const parsed = readComponent(source, index, sourceName);
       components.push(parsed.block);
-      moduleParts.push(emitComponent(parsed.block, clientMetadata, new Map(components.map((component) => [component.name, component]))));
+      moduleParts.push(
+        emitComponent(
+          parsed.block,
+          clientMetadata,
+          new Map(components.map((component) => [component.name, component])),
+        ),
+      );
       index = parsed.end;
       continue;
     }
 
     if (index < source.length) {
-      const componentTagName = readTopLevelComponentTagName(source, index)
+      const componentTagName = readTopLevelComponentTagName(source, index);
       if (componentTagName !== null) {
-        throw syntaxError(sourceName, source, index, `Unexpected top-level component-like ${componentTagName} tag. If this is a component declaration, add @declare, @public, @default, or @private before it.`);
+        throw syntaxError(
+          sourceName,
+          source,
+          index,
+          `Unexpected top-level component-like ${componentTagName} tag. If this is a component declaration, add @declare, @public, @default, or @private before it.`,
+        );
       }
 
       const end = readTopLevelModuleChunkEnd(source, index);
@@ -83,7 +91,8 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
     }
   }
 
-  const runtimeImport = options.runtimeImport ?? `import { escapeHtml, escapeAttribute } from "../src/runtime/html.ts";`;
+  const runtimeImport =
+    options.runtimeImport ?? `import { escapeHtml, escapeAttribute } from "../src/runtime/html.ts";`;
 
   return {
     code: [runtimeImport, "", ...moduleParts, ""].join("\n"),
@@ -102,7 +111,11 @@ export function compileElizabeth(source: string, sourceName = "anonymous.liz", o
   };
 }
 
-export function compileElizabethEndpoint(source: string, sourceName = "anonymous.liz", options: CompileOptions = {}): EndpointCompileResult {
+export function compileElizabethEndpoint(
+  source: string,
+  sourceName = "anonymous.liz",
+  options: CompileOptions = {},
+): EndpointCompileResult {
   const moduleParts: string[] = [];
   const handlers: string[] = [];
   const methods: string[] = [];
@@ -120,7 +133,7 @@ export function compileElizabethEndpoint(source: string, sourceName = "anonymous
     }
 
     if (index < source.length) {
-      const componentTagName = readTopLevelComponentTagName(source, index)
+      const componentTagName = readTopLevelComponentTagName(source, index);
       if (componentTagName !== null) {
         throw syntaxError(
           sourceName,
@@ -142,7 +155,8 @@ export function compileElizabethEndpoint(source: string, sourceName = "anonymous
     }
   }
 
-  const runtimeImport = options.runtimeImport ?? `import { escapeHtml, escapeAttribute } from "../src/runtime/html.ts";`;
+  const runtimeImport =
+    options.runtimeImport ?? `import { escapeHtml, escapeAttribute } from "../src/runtime/html.ts";`;
 
   return {
     code: [runtimeImport, "", ...moduleParts, "", ...handlers, ""].join("\n"),
@@ -195,7 +209,7 @@ function readTopLevelModuleChunkEnd(source: string, start: number): number {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -253,7 +267,7 @@ function readEndpointTopLevelModuleChunkEnd(source: string, start: number): numb
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -370,7 +384,11 @@ function rewriteTopLevelImports(source: string, options: CompileOptions): string
   return rewritten;
 }
 
-function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadataMaps, componentRegistry = new Map<string, ComponentBlock>()): string {
+function emitComponent(
+  component: ComponentBlock,
+  clientMetadata: ClientMetadataMaps,
+  componentRegistry = new Map<string, ComponentBlock>(),
+): string {
   const render = splitComponentBody(component.body);
   const renderStart = findRenderMarkupStart(component.body);
   let markup: string;
@@ -387,11 +405,25 @@ function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadata
   const functionCandidates = component.client
     ? mergeClientFunctions(clientMetadata.moduleFunctions, findClientFunctions(render.logic))
     : [];
-  const derivedAliases = component.client ? findClientDerivedAliases(render.logic, states, functionCandidates) : new Map<string, string>();
+  const derivedAliases = component.client
+    ? findClientDerivedAliases(render.logic, states, functionCandidates)
+    : new Map<string, string>();
   let htmlStatements: string;
   try {
     htmlStatements = component.client
-      ? emitClientHtmlStatements(component, markup, "__html", events, textBindings, htmlBindings, attrBindings, states, functionCandidates, componentRegistry, derivedAliases)
+      ? emitClientHtmlStatements(
+          component,
+          markup,
+          "__html",
+          events,
+          textBindings,
+          htmlBindings,
+          attrBindings,
+          states,
+          functionCandidates,
+          componentRegistry,
+          derivedAliases,
+        )
       : emitMarkupStatements(markup, "__html");
   } catch (error) {
     throw remapComponentError(error, component, renderStart);
@@ -401,16 +433,16 @@ function emitComponent(component: ComponentBlock, clientMetadata: ClientMetadata
   clientMetadata.textBindings.set(component.name, textBindings);
   clientMetadata.htmlBindings.set(component.name, htmlBindings);
   clientMetadata.attrBindings.set(component.name, attrBindings);
-  clientMetadata.functions.set(component.name, selectReferencedClientFunctions(
-    functionCandidates,
-    [
+  clientMetadata.functions.set(
+    component.name,
+    selectReferencedClientFunctions(functionCandidates, [
       ...events.map((event) => event.handler),
       ...states.map((state) => state.initialValue),
       ...textBindings.map((binding) => binding.expression),
       ...htmlBindings.map((binding) => binding.source),
       ...attrBindings.map((binding) => binding.expression),
-    ],
-  ));
+    ]),
+  );
   const propLocals = emitPropLocals(component);
   const logic = [propLocals, render.logic.trim()].filter(Boolean).join("\n");
   const isAsync = containsAwait(logic) || containsAwait(markup) || containsComponentTag(markup);
@@ -426,7 +458,12 @@ ${indent(htmlStatements, 2)}
 
 function remapComponentError(error: unknown, component: ComponentBlock, renderStart: number): Error {
   if (error instanceof MarkupSyntaxError) {
-    return syntaxError(component.sourceName, component.source, component.bodyStart + renderStart + error.index, error.message);
+    return syntaxError(
+      component.sourceName,
+      component.source,
+      component.bodyStart + renderStart + error.index,
+      error.message,
+    );
   }
 
   return error instanceof Error ? error : new Error(String(error));
@@ -467,20 +504,22 @@ function emitPropLocals(component: ComponentBlock): string {
   const props = [...component.props];
 
   if (!props.some((prop) => prop.name === "children")) {
-    props.push({ name: "children", defaultValue: "\"\"" });
+    props.push({ name: "children", defaultValue: '""' });
   }
 
   if (props.length === 0) {
     return "";
   }
 
-  const destructured = props.map((prop) => {
-    if (prop.defaultValue !== null) {
-      return `${prop.name} = ${prop.defaultValue}`;
-    }
+  const destructured = props
+    .map((prop) => {
+      if (prop.defaultValue !== null) {
+        return `${prop.name} = ${prop.defaultValue}`;
+      }
 
-    return prop.name;
-  }).join(", ");
+      return prop.name;
+    })
+    .join(", ");
 
   return `const { ${destructured} } = props;`;
 }
@@ -591,10 +630,17 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
         statements.push(`${target} += ${emitInterpolatedExpressionWithOptions(expression, options)};`);
       } else {
         try {
-          if (options.htmlBindings && expressionReferencesState(expression, options.stateNames, options.functions, options.propAliases)) {
-            statements.push(`${target} += ${emitHtmlBindingExpression(expression, withSourceOffset(options, sourceOffset + index + 1))};`);
+          if (
+            options.htmlBindings &&
+            expressionReferencesState(expression, options.stateNames, options.functions, options.propAliases)
+          ) {
+            statements.push(
+              `${target} += ${emitHtmlBindingExpression(expression, withSourceOffset(options, sourceOffset + index + 1))};`,
+            );
           } else {
-            statements.push(emitScriptBlockStatements(expression, target, withSourceOffset(options, sourceOffset + index + 1)));
+            statements.push(
+              emitScriptBlockStatements(expression, target, withSourceOffset(options, sourceOffset + index + 1)),
+            );
           }
         } catch (error) {
           if (error instanceof MarkupSyntaxError) {
@@ -649,14 +695,18 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
         const inlineComponent = options.componentRegistry?.get(tag.name);
         if (inlineComponent && !inlineComponent.client) {
           if (tag.selfClosing) {
-            statements.push(`${target} += ${emitInlineComponentExpression(inlineComponent, tag.attributes, undefined, options)};`);
+            statements.push(
+              `${target} += ${emitInlineComponentExpression(inlineComponent, tag.attributes, undefined, options)};`,
+            );
             index = tag.end;
             continue;
           }
 
           const close = findComponentClose(markup, tag);
           const children = emitMarkupAsyncExpression(markup.slice(tag.end, close.start), options);
-          statements.push(`${target} += ${emitInlineComponentExpression(inlineComponent, tag.attributes, children, options)};`);
+          statements.push(
+            `${target} += ${emitInlineComponentExpression(inlineComponent, tag.attributes, children, options)};`,
+          );
           index = close.end;
           continue;
         }
@@ -704,7 +754,12 @@ function emitMarkupStatements(markup: string, target: string, options: EmitHtmlO
   }
 }
 
-function emitInlineComponentExpression(component: ComponentBlock, attributes: MarkupAttribute[], children: string | undefined, options: EmitHtmlOptions): string {
+function emitInlineComponentExpression(
+  component: ComponentBlock,
+  attributes: MarkupAttribute[],
+  children: string | undefined,
+  options: EmitHtmlOptions,
+): string {
   const render = splitComponentBody(component.body);
   const markup = scopeComponentStyles(render.markup, component.name);
   const aliases = new Map(options.propAliases);
@@ -716,7 +771,7 @@ function emitInlineComponentExpression(component: ComponentBlock, attributes: Ma
   }
 
   if (!aliases.has("children")) {
-    aliases.set("children", "\"\"");
+    aliases.set("children", '""');
   }
 
   for (const attribute of attributes) {
@@ -824,7 +879,9 @@ function readJsBlockInMarkup(
     const bodyEnd = findMatching(source, brace, "{", "}");
     const body = source.slice(brace + 1, bodyEnd);
     pieces.push(`${header} {`);
-    pieces.push(indent(emitMarkupStatements(body, target, withSourceOffset(options, (options.sourceOffset ?? 0) + brace + 1)), 2));
+    pieces.push(
+      indent(emitMarkupStatements(body, target, withSourceOffset(options, (options.sourceOffset ?? 0) + brace + 1)), 2),
+    );
     pieces.push("}");
 
     const continuationStart = bodyEnd + 1;
@@ -856,7 +913,7 @@ function findJsBlockOpenInMarkup(source: string, start: number): number {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -910,7 +967,13 @@ function emitScriptBlockStatements(source: string, target: string, options: Emit
 
     if (source[index] === "<") {
       const markupEnd = readMarkupRunEnd(source, index);
-      statements.push(emitMarkupStatements(source.slice(index, markupEnd), target, withSourceOffset(options, (options.sourceOffset ?? 0) + index)));
+      statements.push(
+        emitMarkupStatements(
+          source.slice(index, markupEnd),
+          target,
+          withSourceOffset(options, (options.sourceOffset ?? 0) + index),
+        ),
+      );
       index = markupEnd;
       continue;
     }
@@ -1008,7 +1071,7 @@ function readScriptStatementEnd(source: string, start: number): number {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -1031,7 +1094,13 @@ function readScriptStatementEnd(source: string, start: number): number {
     else if (char === "}") braceDepth--;
     else if (char === ";" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
       return index + 1;
-    } else if (char === "<" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && isMarkupStart(source, index)) {
+    } else if (
+      char === "<" &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0 &&
+      isMarkupStart(source, index)
+    ) {
       return index;
     } else if (char === "\n" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
       const nextToken = skipWhitespace(source, index + 1);
@@ -1197,7 +1266,7 @@ function emitHtmlExpression(markup: string, options: EmitHtmlOptions = {}): stri
   flushText();
 
   if (tokens.length === 0) {
-    return "\"\"";
+    return '""';
   }
 
   return tokens.join(" + ");
@@ -1236,12 +1305,17 @@ function emitInterpolatedExpressionWithOptions(expression: string, options: Emit
     expression,
     reactive: expressionReferencesState(expression, options.stateNames, options.functions),
   });
-  const initialHtml = expressionCanRenderOnServer(expression, options.functions) ? emitInterpolatedExpression(expression) : "\"\"";
+  const initialHtml = expressionCanRenderOnServer(expression, options.functions)
+    ? emitInterpolatedExpression(expression)
+    : '""';
   return `${JSON.stringify(`<span data-elizabeth-text="${id}">`)} + ${initialHtml} + ${JSON.stringify("</span>")}`;
 }
 
 function expressionNeedsClientBinding(expression: string, options: EmitHtmlOptions): boolean {
-  return expressionReferencesState(expression, options.stateNames, options.functions) || !expressionCanRenderOnServer(expression, options.functions);
+  return (
+    expressionReferencesState(expression, options.stateNames, options.functions) ||
+    !expressionCanRenderOnServer(expression, options.functions)
+  );
 }
 
 function resolveExpressionAlias(expression: string, options: EmitHtmlOptions): string {
@@ -1261,7 +1335,7 @@ function applyExpressionAliases(source: string, options: EmitHtmlOptions): strin
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       const end = skipString(source, index);
       output += source.slice(index, end);
       index = end;
@@ -1284,9 +1358,7 @@ function applyExpressionAliases(source: string, options: EmitHtmlOptions): strin
 
     const match = /^[A-Za-z_$][\w$]*/.exec(source.slice(index));
     if (match) {
-      const alias = previousSignificantChar(source, index) === "."
-        ? undefined
-        : options.propAliases.get(match[0]);
+      const alias = previousSignificantChar(source, index) === "." ? undefined : options.propAliases.get(match[0]);
       output += alias ? `(${alias})` : match[0];
       index += match[0].length;
       continue;
@@ -1300,7 +1372,10 @@ function applyExpressionAliases(source: string, options: EmitHtmlOptions): strin
 }
 
 function expressionCanRenderOnServer(expression: string, functions: ClientFunction[] = []): boolean {
-  return !expressionReferencesClientFunction(expression, functions) || expressionReferencesOnlyServerRenderableClientFunctions(expression, functions);
+  return (
+    !expressionReferencesClientFunction(expression, functions) ||
+    expressionReferencesOnlyServerRenderableClientFunctions(expression, functions)
+  );
 }
 
 function expressionReferencesClientFunction(expression: string, functions: ClientFunction[] = []): boolean {
@@ -1312,7 +1387,10 @@ function expressionReferencesClientFunction(expression: string, functions: Clien
   return findReferencedIdentifiersInExpression(expression).some((identifier) => functionNames.has(identifier));
 }
 
-function expressionReferencesOnlyServerRenderableClientFunctions(expression: string, functions: ClientFunction[] = []): boolean {
+function expressionReferencesOnlyServerRenderableClientFunctions(
+  expression: string,
+  functions: ClientFunction[] = [],
+): boolean {
   const byName = new Map(functions.map((fn) => [fn.name, fn]));
   const referenced = findReferencedIdentifiersInExpression(expression)
     .map((identifier) => byName.get(identifier))
@@ -1333,14 +1411,22 @@ function isServerRenderableConstantFunction(fn: ClientFunction): boolean {
   }
 
   const functionNode = findFunctionNodeForClientFunction(declaration, fn.name);
-  if (!functionNode || functionNode.async === true || functionNode.generator === true || Array.isArray(functionNode.params) && functionNode.params.length > 0) {
+  if (
+    !functionNode ||
+    functionNode.async === true ||
+    functionNode.generator === true ||
+    (Array.isArray(functionNode.params) && functionNode.params.length > 0)
+  ) {
     return false;
   }
 
   return functionNodeReturnsLiteral(functionNode);
 }
 
-function findFunctionNodeForClientFunction(declaration: Record<string, unknown>, name: string): Record<string, unknown> | null {
+function findFunctionNodeForClientFunction(
+  declaration: Record<string, unknown>,
+  name: string,
+): Record<string, unknown> | null {
   if (declaration.type === "FunctionDeclaration") {
     const id = declaration.id as Record<string, unknown> | null;
     return id?.name === name ? declaration : null;
@@ -1359,11 +1445,7 @@ function findFunctionNodeForClientFunction(declaration: Record<string, unknown>,
     const id = declarator.id as Record<string, unknown> | null;
     const init = declarator.init as Record<string, unknown> | null;
 
-    if (
-      id?.name === name &&
-      init &&
-      (init.type === "ArrowFunctionExpression" || init.type === "FunctionExpression")
-    ) {
+    if (id?.name === name && init && (init.type === "ArrowFunctionExpression" || init.type === "FunctionExpression")) {
       return init;
     }
   }
@@ -1387,7 +1469,10 @@ function functionNodeReturnsLiteral(node: Record<string, unknown>): boolean {
   }
 
   const statement = body.body[0] as Record<string, unknown>;
-  return statement.type === "ReturnStatement" && isLiteralLikeExpression(statement.argument as Record<string, unknown> | null);
+  return (
+    statement.type === "ReturnStatement" &&
+    isLiteralLikeExpression(statement.argument as Record<string, unknown> | null)
+  );
 }
 
 function isLiteralLikeExpression(node: Record<string, unknown> | null): boolean {
@@ -1422,7 +1507,7 @@ function expressionReferencesState(
     const char = expression[index];
     const next = expression[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(expression, index);
       continue;
     }
@@ -1453,7 +1538,15 @@ function expressionReferencesState(
       }
 
       const fn = functions.find((candidate) => candidate.name === match[0]);
-      if (fn && expressionReferencesState(fn.source, stateNames, functions.filter((candidate) => candidate.name !== fn.name), propAliases)) {
+      if (
+        fn &&
+        expressionReferencesState(
+          fn.source,
+          stateNames,
+          functions.filter((candidate) => candidate.name !== fn.name),
+          propAliases,
+        )
+      ) {
         return true;
       }
 
@@ -1490,10 +1583,7 @@ function findModuleClientFunctions(source: string, sourceName: string): ClientFu
 }
 
 function findClientFunctions(source: string): ClientFunction[] {
-  return mergeClientFunctions([
-    ...findFunctionDeclarations(source),
-    ...findFunctionVariables(source),
-  ]);
+  return mergeClientFunctions([...findFunctionDeclarations(source), ...findFunctionVariables(source)]);
 }
 
 function mergeClientFunctions(...groups: ClientFunction[][]): ClientFunction[] {
@@ -1586,7 +1676,10 @@ function isBindingIdentifier(node: Record<string, unknown>, parent: unknown): bo
   return (
     (record.type === "VariableDeclarator" && record.id === node) ||
     ((record.type === "FunctionDeclaration" || record.type === "FunctionExpression") && record.id === node) ||
-    ((record.type === "ImportSpecifier" || record.type === "ImportDefaultSpecifier" || record.type === "ImportNamespaceSpecifier") && record.local === node) ||
+    ((record.type === "ImportSpecifier" ||
+      record.type === "ImportDefaultSpecifier" ||
+      record.type === "ImportNamespaceSpecifier") &&
+      record.local === node) ||
     (Array.isArray(record.params) && record.params.includes(node))
   );
 }
@@ -1634,7 +1727,7 @@ function findFunctionBodyStart(source: string, start: number): number {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -1686,7 +1779,11 @@ function findFunctionVariables(source: string): ClientFunction[] {
 }
 
 function isFunctionVariableStatement(statement: string): boolean {
-  const initializer = statement.slice(statement.indexOf("=") + 1).trim().replace(/;$/, "").trim();
+  const initializer = statement
+    .slice(statement.indexOf("=") + 1)
+    .trim()
+    .replace(/;$/, "")
+    .trim();
   return /^(?:async\s+)?function\b/.test(initializer) || isArrowFunctionInitializer(initializer);
 }
 
@@ -1716,7 +1813,7 @@ function readClientFunctionStatementEnd(source: string, start: number): number {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -1756,7 +1853,8 @@ function normalizeClientFunctionSource(source: string): string {
 function findClientStates(logic: string): ClientStateBinding[] {
   const states: ClientStateBinding[] = [];
   const callees = findClientStateCallees(logic);
-  const pattern = /\b(?:const|let)\s+\[\s*([A-Za-z_$][\w$]*)\s*,\s*([A-Za-z_$][\w$]*)\s*\]\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
+  const pattern =
+    /\b(?:const|let)\s+\[\s*([A-Za-z_$][\w$]*)\s*,\s*([A-Za-z_$][\w$]*)\s*\]\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g;
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(logic)) !== null) {
@@ -1829,7 +1927,9 @@ function findClientDerivedAliases(
 
       const expressionStart = pattern.lastIndex;
       const statementEnd = readScriptStatementEnd(logic, match.index);
-      const expression = logic.slice(expressionStart, logic[statementEnd - 1] === ";" ? statementEnd - 1 : statementEnd).trim();
+      const expression = logic
+        .slice(expressionStart, logic[statementEnd - 1] === ";" ? statementEnd - 1 : statementEnd)
+        .trim();
 
       if (
         expression.length > 0 &&
@@ -1859,7 +1959,7 @@ function isTopLevelCodePosition(source: string, position: number): boolean {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -1894,7 +1994,10 @@ interface MarkupAttribute {
 }
 
 class MarkupSyntaxError extends Error {
-  constructor(message: string, readonly index: number) {
+  constructor(
+    message: string,
+    readonly index: number,
+  ) {
     super(message);
   }
 }
@@ -1934,7 +2037,10 @@ function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}):
     }
 
     const name = normalizeHtmlAttributeName(attribute.name);
-    const value = attribute.value === null ? null : applyExpressionAliases(resolveExpressionAlias(attribute.value, options), options);
+    const value =
+      attribute.value === null
+        ? null
+        : applyExpressionAliases(resolveExpressionAlias(attribute.value, options), options);
 
     if (attribute.kind === "boolean") {
       parts.push(JSON.stringify(` ${name}`));
@@ -1960,7 +2066,7 @@ function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}):
     }
     parts.push(JSON.stringify(` ${name}="`));
     parts.push(`escapeAttribute(${emitRenderableValueExpression(value ?? "")})`);
-    parts.push(JSON.stringify("\""));
+    parts.push(JSON.stringify('"'));
   }
 
   parts.push(JSON.stringify(tag.selfClosing ? " />" : ">"));
@@ -1974,10 +2080,7 @@ function emitAttributeBindingMarker(
   isBoolean: boolean,
   options: EmitHtmlOptions,
 ): void {
-  if (
-    !options.attrBindings ||
-    !expressionNeedsClientBinding(expression, options)
-  ) {
+  if (!options.attrBindings || !expressionNeedsClientBinding(expression, options)) {
     return;
   }
 
@@ -2019,7 +2122,6 @@ function emitPropsObject(attributes: MarkupAttribute[], children?: string): stri
 }
 
 function readMarkupTag(source: string, start: number): MarkupTag {
-
   if (source.startsWith("<>", start)) {
     return {
       raw: "",
@@ -2038,7 +2140,7 @@ function readMarkupTag(source: string, start: number): MarkupTag {
     return {
       raw: "",
       name: "",
-      attributes:  [],
+      attributes: [],
       closing: true,
       selfClosing: false,
       isComponent: false,
@@ -2075,7 +2177,6 @@ function readMarkupTag(source: string, start: number): MarkupTag {
     fragment: false,
   };
 }
-
 
 function sourceStartsWithHtmlComment(source: string, index: number): boolean {
   return source.startsWith("<!--", index);
@@ -2118,7 +2219,7 @@ function parseAttributes(source: string, offset = 0): MarkupAttribute[] {
     index++;
     index = skipWhitespace(source, index);
 
-    if (source[index] === "\"" || source[index] === "'") {
+    if (source[index] === '"' || source[index] === "'") {
       const end = skipString(source, index);
       attributes.push({
         name,
@@ -2143,7 +2244,10 @@ function parseAttributes(source: string, offset = 0): MarkupAttribute[] {
     if (source[index] === "`") {
       const end = skipString(source, index);
       const value = source.slice(index + 1, end - 1);
-      throw new MarkupSyntaxError(`Attribute ${name} uses a backtick template without braces. Use ${name}={\`${value}\`} for a JavaScript expression, or ${name}="${value}" for a string.`, offset + index);
+      throw new MarkupSyntaxError(
+        `Attribute ${name} uses a backtick template without braces. Use ${name}={\`${value}\`} for a JavaScript expression, or ${name}="${value}" for a string.`,
+        offset + index,
+      );
     }
 
     const end = readBareAttributeEnd(source, index);
@@ -2183,7 +2287,11 @@ function scopeComponentStyles(markup: string, componentName: string): string {
 
   for (const block of styleBlocks) {
     output += rewriteStaticClassAttributes(markup.slice(cursor, block.start), classMap);
-    output += addStyleScopeAttribute(rewriteCssClassNames(markup.slice(block.start, block.contentStart), classMap), componentName, scope);
+    output += addStyleScopeAttribute(
+      rewriteCssClassNames(markup.slice(block.start, block.contentStart), classMap),
+      componentName,
+      scope,
+    );
     output += rewriteCssClassNames(block.css, classMap);
     output += markup.slice(block.contentEnd, block.end);
     cursor = block.end;
@@ -2245,7 +2353,7 @@ function findCssClassNames(css: string): Set<string> {
     const char = css[index];
     const next = css[index + 1];
 
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       index = skipString(css, index);
       continue;
     }
@@ -2282,7 +2390,7 @@ function rewriteCssClassNames(css: string, classMap: Map<string, string>): strin
     const char = css[index];
     const next = css[index + 1];
 
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       const end = skipString(css, index);
       output += css.slice(index, end);
       index = end;
@@ -2335,7 +2443,7 @@ function rewriteStaticClassAttributes(markup: string, classMap: Map<string, stri
     const valueStart = skipWhitespace(markup, attrStart + match[0].length);
     output += markup.slice(index, attrStart);
 
-    if (markup[valueStart] === "\"" || markup[valueStart] === "'") {
+    if (markup[valueStart] === '"' || markup[valueStart] === "'") {
       const end = skipString(markup, valueStart);
       const quote = markup[valueStart];
       output += `${match[1]}=${quote}${rewriteClassTokenString(markup.slice(valueStart + 1, end - 1), classMap)}${quote}`;
@@ -2364,7 +2472,7 @@ function rewriteClassExpression(expression: string, classMap: Map<string, string
   while (index < expression.length) {
     const char = expression[index];
 
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       const end = skipString(expression, index);
       output += `${char}${rewriteClassTokenString(expression.slice(index + 1, end - 1), classMap)}${char}`;
       index = end;
@@ -2419,7 +2527,10 @@ function rewriteClassTemplate(value: string, classMap: Map<string, string>): str
 }
 
 function rewriteClassTokenString(value: string, classMap: Map<string, string>): string {
-  return value.split(/(\s+)/).map((part) => classMap.get(part) ?? part).join("");
+  return value
+    .split(/(\s+)/)
+    .map((part) => classMap.get(part) ?? part)
+    .join("");
 }
 
 function addStyleScopeAttribute(openTag: string, componentName: string, scope: string): string {
@@ -2567,14 +2678,12 @@ const booleanHtmlAttributes = new Set([
 ]);
 
 function escapeStaticAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("\"", "&quot;");
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
 }
 
 function readComponent(source: string, start: number, sourceName: string): { block: ComponentBlock; end: number } {
   const parsed = readComponentDecorators(source, start, sourceName);
-  let index = parsed.end;
+  const index = parsed.end;
 
   const openMatch = /^<([A-Z][A-Za-z0-9_]*)([^>]*)>/.exec(source.slice(index));
   if (!openMatch) {
@@ -2648,7 +2757,12 @@ function readComponentDecorators(
   }
 
   if (!visibility) {
-    throw syntaxError(sourceName, source, index, "Expected @declare, @public, @default, or @private after component modifiers.");
+    throw syntaxError(
+      sourceName,
+      source,
+      index,
+      "Expected @declare, @public, @default, or @private after component modifiers.",
+    );
   }
 
   return { visibility, client, end: index };
@@ -2686,7 +2800,7 @@ function parseComponentDeclarationProps(
     index++;
     index = skipWhitespace(source, index);
 
-    if (source[index] === "\"" || source[index] === "'") {
+    if (source[index] === '"' || source[index] === "'") {
       const end = skipString(source, index);
       props.push({ name, defaultValue: source.slice(index, end) });
       index = end;
@@ -2718,7 +2832,7 @@ function findRenderMarkupStart(body: string): number {
     const char = body[index];
     const next = body[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(body, index);
       continue;
     }
@@ -2761,7 +2875,7 @@ function findTagEnd(source: string, start: number): number {
   while (index < source.length) {
     const char = source[index];
 
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       index = skipString(source, index);
       continue;
     }
@@ -2789,7 +2903,7 @@ function findMatching(source: string, start: number, open: string, close: string
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -2817,7 +2931,7 @@ function readStatementEnd(source: string, start: number): number {
   let index = start;
 
   while (index < source.length && source[index] !== "\n") {
-    if (source[index] === "\"" || source[index] === "'" || source[index] === "`") {
+    if (source[index] === '"' || source[index] === "'" || source[index] === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -2887,7 +3001,7 @@ function containsAwait(source: string): boolean {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipString(source, index);
       continue;
     }
@@ -2983,7 +3097,10 @@ function indent(source: string, spaces: number): string {
   }
 
   const prefix = " ".repeat(spaces);
-  return source.split("\n").map((line) => `${prefix}${line}`).join("\n");
+  return source
+    .split("\n")
+    .map((line) => `${prefix}${line}`)
+    .join("\n");
 }
 
 function syntaxError(sourceName: string, source: string, index: number, message: string): Error {
