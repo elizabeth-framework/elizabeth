@@ -1067,3 +1067,116 @@ test("buildPageRoutes and matchPageRoute support index and dynamic pages", async
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("layouts can write title, meta, and link tags into <head>", async () => {
+  const root = await tempProject("layout-head");
+
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await Bun.write(
+      join(root, "src/pages/layout.liz"),
+      `
+@default
+<RootLayout>
+  <html lang="en">
+    <head>
+      <title>My Site</title>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="description" content="A small Elizabeth app" />
+      <link rel="icon" href="/favicon.svg" />
+      <link rel="alternate" type="application/rss+xml" href="/feed.xml" />
+    </head>
+    <body>{children}</body>
+  </html>
+</RootLayout>
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/index.liz"),
+      `
+@default
+<Home>
+  <main>Hello</main>
+</Home>
+`,
+    );
+
+    const manifest = await buildPageRoutes({
+      root,
+      frameworkRoot: process.cwd(),
+      pageRoots: [{ dir: join(root, "src/pages"), basePath: "/" }],
+      outDir: join(root, ".elizabeth"),
+    });
+    const match = matchPageRoute(manifest.routes, "/");
+    const html = await renderPageRoute(match!);
+
+    if (typeof html !== "string") throw new Error("expected rendered html");
+
+    const headOpen = html.indexOf("<head>");
+    const headClose = html.indexOf("</head>");
+    const bodyOpen = html.indexOf("<body>");
+
+    expect(headOpen).toBeGreaterThanOrEqual(0);
+    expect(headClose).toBeGreaterThan(headOpen);
+    expect(bodyOpen).toBeGreaterThan(headClose);
+
+    const headBlock = html.slice(headOpen, headClose);
+    expect(headBlock).toContain("<title>My Site</title>");
+    expect(headBlock).toContain('<meta charset="utf-8"');
+    expect(headBlock).toContain('<meta name="viewport"');
+    expect(headBlock).toContain('<meta name="description"');
+    expect(headBlock).toContain('<link rel="icon"');
+    expect(headBlock).toContain('<link rel="alternate"');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("scoped <style> from a component is preserved inside the rendered HTML", async () => {
+  const root = await tempProject("layout-style");
+
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await Bun.write(
+      join(root, "src/pages/layout.liz"),
+      `
+@default
+<RootLayout>
+  <html>
+    <head><title>Styled</title></head>
+    <body>{children}</body>
+  </html>
+</RootLayout>
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/index.liz"),
+      `
+@default
+<Home>
+  <style>
+    .hero { color: hotpink; }
+  </style>
+  <main className="hero">Styled hero</main>
+</Home>
+`,
+    );
+
+    const manifest = await buildPageRoutes({
+      root,
+      frameworkRoot: process.cwd(),
+      pageRoots: [{ dir: join(root, "src/pages"), basePath: "/" }],
+      outDir: join(root, ".elizabeth"),
+    });
+    const match = matchPageRoute(manifest.routes, "/");
+    const html = await renderPageRoute(match!);
+
+    if (typeof html !== "string") throw new Error("expected rendered html");
+
+    expect(html).toContain("<title>Styled</title>");
+    expect(html).toContain("color: hotpink");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
