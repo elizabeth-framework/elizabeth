@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { generateId, parseIdTime, randomId } from "../src/index.ts";
 
 describe("generateId()", () => {

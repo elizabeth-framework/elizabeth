@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { etag, ifNoneMatch, notModified } from "../src/index.ts";
 
 describe("etag()", () => {

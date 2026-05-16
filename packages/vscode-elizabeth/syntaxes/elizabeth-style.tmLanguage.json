@@ -21,9 +21,7 @@
         "4": { "name": "punctuation.definition.tag.end.html" }
       },
       "contentName": "source.css",
-      "patterns": [
-        { "include": "source.css" }
-      ]
+      "patterns": [{ "include": "source.css" }]
     }
   ]
 }

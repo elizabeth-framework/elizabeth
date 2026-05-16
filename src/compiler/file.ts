@@ -95,7 +95,9 @@ export async function compileElizabethFile(inputPath: string, options: CompileFi
     }
 
     const outputBasePath = outputBasePathFor(filePath, root, outDir);
-    const runtimePath = toImportSpecifier(relative(dirname(outputBasePath), resolve(frameworkRoot, "src/runtime/html.ts")));
+    const runtimePath = toImportSpecifier(
+      relative(dirname(outputBasePath), resolve(frameworkRoot, "src/runtime/html.ts")),
+    );
     const result = compileElizabeth(source, filePath, {
       runtimeImport: `import { escapeHtml, escapeAttribute } from ${JSON.stringify(runtimePath)};`,
       rewriteImport(statement) {
@@ -109,9 +111,10 @@ export async function compileElizabethFile(inputPath: string, options: CompileFi
     await writeFile(outputPath, result.code);
     await cleanupGeneratedModuleVariants(outputPath, outputBasePath);
 
-    const clientOutputPath = result.clientComponents.length > 0
-      ? await writeClientModule(filePath, root, outDir, result.clientComponents)
-      : null;
+    const clientOutputPath =
+      result.clientComponents.length > 0
+        ? await writeClientModule(filePath, root, outDir, result.clientComponents)
+        : null;
 
     for (const component of result.clientComponents) {
       const moduleId = relative(root, filePath).replaceAll("\\", "/");
@@ -159,19 +162,28 @@ export async function compileElizabethFile(inputPath: string, options: CompileFi
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(cssOutputPath, `${compiled.css}\n/*# sourceMappingURL=${mapHref} */\n`);
     await writeFile(cssMapOutputPath, JSON.stringify(cssSourceMapFor(filePath, root, source, compiled.map), null, 2));
-    await writeFile(outputPath, `const styles = ${JSON.stringify(compiled.classes, null, 2)};
+    await writeFile(
+      outputPath,
+      `const styles = ${JSON.stringify(compiled.classes, null, 2)};
 export default styles;
 export const href = ${JSON.stringify(href)};
 export const sourceMap = ${JSON.stringify(mapHref)};
-${Object.entries(compiled.classes).map(([name, value]) => safeExportStatement(name, value)).filter(Boolean).join("\n")}
-`);
+${Object.entries(compiled.classes)
+  .map(([name, value]) => safeExportStatement(name, value))
+  .filter(Boolean)
+  .join("\n")}
+`,
+    );
     await cleanupGeneratedModuleVariants(outputPath, outputBasePath);
 
     return entry;
   }
 }
 
-export async function compileElizabethEndpointFile(inputPath: string, options: CompileFileOptions): Promise<CompileEndpointFileResult> {
+export async function compileElizabethEndpointFile(
+  inputPath: string,
+  options: CompileFileOptions,
+): Promise<CompileEndpointFileResult> {
   const normalizedInput = resolve(inputPath);
   const root = resolve(options.root);
   const frameworkRoot = resolve(options.frameworkRoot ?? root);
@@ -203,7 +215,9 @@ export async function compileElizabethEndpointFile(inputPath: string, options: C
   }
 
   const outputBasePath = outputBasePathFor(normalizedInput, root, outDir);
-  const runtimePath = toImportSpecifier(relative(dirname(outputBasePath), resolve(frameworkRoot, "src/runtime/html.ts")));
+  const runtimePath = toImportSpecifier(
+    relative(dirname(outputBasePath), resolve(frameworkRoot, "src/runtime/html.ts")),
+  );
   const result = compileElizabethEndpoint(source, normalizedInput, {
     runtimeImport: `import { escapeHtml, escapeAttribute } from ${JSON.stringify(runtimePath)};`,
     rewriteImport(statement) {
@@ -229,31 +243,54 @@ async function writeClientModule(
   components: ClientComponent[],
 ): Promise<string> {
   const path = clientOutputPathFor(sourcePath, root, outDir);
-  const registrations = components.map((component) => {
-    const hydrateName = `hydrate${component.name}`;
-    const stateDeclarations = component.states.map((state) => {
-      return `  let ${state.name} = ${state.initialValue};
+  const registrations = components
+    .map((component) => {
+      const hydrateName = `hydrate${component.name}`;
+      const stateDeclarations = component.states
+        .map((state) => {
+          return `  let ${state.name} = ${state.initialValue};
   const ${state.setter} = (next) => {
     ${state.name} = typeof next === "function" ? next(${state.name}) : next;
     render();
   };`;
-    }).join("\n");
-    const clientFunctions = component.clientFunctions.map((fn) => indent(fn.source, 2)).join("\n");
-    const staticTextUpdates = component.textBindings.filter((binding) => !binding.reactive).map((binding) => {
-      return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(__elizabethValue(${binding.expression})));`;
-    }).join("\n");
-    const textUpdates = component.textBindings.filter((binding) => binding.reactive).map((binding) => {
-      return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(__elizabethValue(${binding.expression})));`;
-    }).join("\n");
-    const staticHtmlUpdates = component.htmlBindings.filter((binding) => !binding.reactive).map((binding) => emitClientHtmlUpdate(binding)).join("\n");
-    const htmlUpdates = component.htmlBindings.filter((binding) => binding.reactive).map((binding) => emitClientHtmlUpdate(binding)).join("\n");
-    const staticAttrUpdates = component.attrBindings.filter((binding) => !binding.reactive).map((binding) => emitClientAttributeUpdate(binding)).join("\n");
-    const attrUpdates = component.attrBindings.filter((binding) => binding.reactive).map((binding) => emitClientAttributeUpdate(binding)).join("\n");
-    const listeners = component.events.map((event) => {
-      return `  root.querySelector(${JSON.stringify(`[data-elizabeth-event-${event.eventName}="${event.id}"]`)})?.addEventListener(${JSON.stringify(event.eventName)}, (event) => (${event.handler})(event));`;
-    }).join("\n");
+        })
+        .join("\n");
+      const clientFunctions = component.clientFunctions.map((fn) => indent(fn.source, 2)).join("\n");
+      const staticTextUpdates = component.textBindings
+        .filter((binding) => !binding.reactive)
+        .map((binding) => {
+          return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(__elizabethValue(${binding.expression})));`;
+        })
+        .join("\n");
+      const textUpdates = component.textBindings
+        .filter((binding) => binding.reactive)
+        .map((binding) => {
+          return `    root.querySelector(${JSON.stringify(`[data-elizabeth-text="${binding.id}"]`)})?.replaceChildren(String(__elizabethValue(${binding.expression})));`;
+        })
+        .join("\n");
+      const staticHtmlUpdates = component.htmlBindings
+        .filter((binding) => !binding.reactive)
+        .map((binding) => emitClientHtmlUpdate(binding))
+        .join("\n");
+      const htmlUpdates = component.htmlBindings
+        .filter((binding) => binding.reactive)
+        .map((binding) => emitClientHtmlUpdate(binding))
+        .join("\n");
+      const staticAttrUpdates = component.attrBindings
+        .filter((binding) => !binding.reactive)
+        .map((binding) => emitClientAttributeUpdate(binding))
+        .join("\n");
+      const attrUpdates = component.attrBindings
+        .filter((binding) => binding.reactive)
+        .map((binding) => emitClientAttributeUpdate(binding))
+        .join("\n");
+      const listeners = component.events
+        .map((event) => {
+          return `  root.querySelector(${JSON.stringify(`[data-elizabeth-event-${event.eventName}="${event.id}"]`)})?.addEventListener(${JSON.stringify(event.eventName)}, (event) => (${event.handler})(event));`;
+        })
+        .join("\n");
 
-    return `export function ${hydrateName}(root) {
+      return `export function ${hydrateName}(root) {
   root.setAttribute("data-elizabeth-hydrated", ${JSON.stringify(component.name)});
 ${stateDeclarations}
 ${clientFunctions}
@@ -278,30 +315,34 @@ ${listeners}
 }
 
 globalThis.__elizabethRegisterIsland?.(${JSON.stringify(component.name)}, ${hydrateName});`;
-  }).join("\n\n");
+    })
+    .join("\n\n");
 
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${registrations}
-`);
+  await writeFile(
+    path,
+    `${registrations}
+`,
+  );
 
   return path;
 }
 
 function emitClientAttributeUpdate(binding: ClientComponent["attrBindings"][number]): string {
-      const selector = JSON.stringify(`[data-elizabeth-attr-${binding.id}]`);
-      const name = JSON.stringify(binding.name);
+  const selector = JSON.stringify(`[data-elizabeth-attr-${binding.id}]`);
+  const name = JSON.stringify(binding.name);
 
-      if (binding.boolean) {
-        return `    {
+  if (binding.boolean) {
+    return `    {
       const element = root.querySelector(${selector});
       if (element) {
         if (__elizabethValue(${binding.expression})) element.setAttribute(${name}, "");
         else element.removeAttribute(${name});
       }
     }`;
-      }
+  }
 
-      return `    {
+  return `    {
       const element = root.querySelector(${selector});
       if (element) element.setAttribute(${name}, String(__elizabethValue(${binding.expression})));
     }`;
@@ -319,26 +360,45 @@ async function writeClientManifest(outDir: string, entries: ClientManifestEntry[
   const path = resolve(outDir, "client-manifest.json");
 
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({
-    islands: entries.sort((left, right) => left.moduleId.localeCompare(right.moduleId) || left.name.localeCompare(right.name)),
-  }, null, 2)}\n`);
+  await writeFile(
+    path,
+    `${JSON.stringify(
+      {
+        islands: entries.sort(
+          (left, right) => left.moduleId.localeCompare(right.moduleId) || left.name.localeCompare(right.name),
+        ),
+      },
+      null,
+      2,
+    )}\n`,
+  );
 
   return path;
 }
 
 function rewritePackageImport(statement: string, outputPath: string, root: string): string {
-  return statement.replace(/(["'])(elizabeth(?:\/(?:client|route))?)\1/g, (_match, quote: string, specifier: string) => {
-    const target = specifier === "elizabeth/route"
-      ? "src/route.ts"
-      : specifier === "elizabeth/client"
-        ? "src/client.ts"
-        : "src/elizabeth.ts";
-    const rewritten = toImportSpecifier(relative(dirname(outputPath), resolve(root, target)));
-    return `${quote}${rewritten}${quote}`;
-  });
+  return statement.replace(
+    /(["'])(elizabeth(?:\/(?:client|route))?)\1/g,
+    (_match, quote: string, specifier: string) => {
+      const target =
+        specifier === "elizabeth/route"
+          ? "src/route.ts"
+          : specifier === "elizabeth/client"
+            ? "src/client.ts"
+            : "src/elizabeth.ts";
+      const rewritten = toImportSpecifier(relative(dirname(outputPath), resolve(root, target)));
+      return `${quote}${rewritten}${quote}`;
+    },
+  );
 }
 
-function rewriteServerModuleImports(source: string, root: string, sourcePath: string, outputPath: string, frameworkRoot: string): string {
+function rewriteServerModuleImports(
+  source: string,
+  root: string,
+  sourcePath: string,
+  outputPath: string,
+  frameworkRoot: string,
+): string {
   const parsed = parseSync("server-module.ts", source, {
     lang: "ts",
     sourceType: "module",
@@ -364,19 +424,15 @@ function rewriteServerImportStatement(
   const sourceRelative = rewriteSourceImport(statement, root, sourcePath, outputPath);
   const rewritten = context
     ? rewriteCssModuleImport(
-      rewriteLizImport(sourceRelative, root, sourcePath, outputPath, context),
-      root,
-      sourcePath,
-      outputPath,
-      context,
-    )
+        rewriteLizImport(sourceRelative, root, sourcePath, outputPath, context),
+        root,
+        sourcePath,
+        outputPath,
+        context,
+      )
     : sourceRelative;
 
-  return rewritePackageImport(
-    rewritten,
-    outputPath,
-    frameworkRoot,
-  );
+  return rewritePackageImport(rewritten, outputPath, frameworkRoot);
 }
 
 function rewriteSourceImport(statement: string, root: string, sourcePath: string, outputPath: string): string {
@@ -400,14 +456,13 @@ function findCssModuleImports(source: string, sourceName = "anonymous.liz"): str
 }
 
 function findStaticImports(source: string, sourceName = "anonymous.liz"): string[] {
-  
   const missingDecorator = findMissingComponentDecorator(source, sourceName);
 
   if (missingDecorator) {
     throw new Error(
       `${missingDecorator.sourceName}:${missingDecorator.line}:${missingDecorator.column}: ` +
-      `Unexpected top-level component-like <${missingDecorator.componentName}> tag. ` +
-      `If this is a component declaration, add @declare, @public, @default, or @private before it.`
+        `Unexpected top-level component-like <${missingDecorator.componentName}> tag. ` +
+        `If this is a component declaration, add @declare, @public, @default, or @private before it.`,
     );
   }
 
@@ -429,7 +484,9 @@ function findStaticImports(source: string, sourceName = "anonymous.liz"): string
     if (location) {
       const originalIndex = indexFromLineColumn(source, location.line, location.column);
       const position = sourcePosition(source, originalIndex);
-      throw new Error(`${sourceName}:${position.line + 1}:${position.column + 1}: Invalid import syntax: ${error.message}`);
+      throw new Error(
+        `${sourceName}:${position.line + 1}:${position.column + 1}: Invalid import syntax: ${error.message}`,
+      );
     }
 
     throw new Error(`Invalid import syntax: ${error.message}`);
@@ -513,7 +570,7 @@ function readTopLevelModuleChunkEnd(source: string, start: number): number {
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       index = skipImportString(source, index);
       continue;
     }
@@ -757,7 +814,11 @@ interface CssMapping {
   originalColumn: number;
 }
 
-function compileCssModuleSource(filePath: string, root: string, source: string): { css: string; classes: Record<string, string>; map: CssMapping[] } {
+function compileCssModuleSource(
+  filePath: string,
+  root: string,
+  source: string,
+): { css: string; classes: Record<string, string>; map: CssMapping[] } {
   const classes: Record<string, string> = {};
   const fileHash = hashString(relative(root, filePath).replaceAll("\\", "/"));
   const compiled = transformCssModuleCss(source, classes, fileHash);
@@ -805,7 +866,11 @@ function composedClassesFor(source: string, className: string, classes: Record<s
   return composed;
 }
 
-function transformCssModuleCss(source: string, classes: Record<string, string>, fileHash: string): { css: string; map: CssMapping[] } {
+function transformCssModuleCss(
+  source: string,
+  classes: Record<string, string>,
+  fileHash: string,
+): { css: string; map: CssMapping[] } {
   let output = "";
   let index = 0;
   let generatedLine = 0;
@@ -817,7 +882,7 @@ function transformCssModuleCss(source: string, classes: Record<string, string>, 
     const char = source[index];
     const next = source[index + 1];
 
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       const end = skipCssString(source, index);
       appendOriginal(source.slice(index, end), index);
       index = end;
@@ -966,27 +1031,31 @@ function encodeSourceMapMappings(mappings: CssMapping[]): string {
     const segments = lines.get(line) ?? [];
     let previousGeneratedColumn = 0;
 
-    encodedLines.push(segments.map((segment) => {
-      const encoded = [
-        encodeVlq(segment.generatedColumn - previousGeneratedColumn),
-        encodeVlq(segment.sourceIndex - previousSource),
-        encodeVlq(segment.originalLine - previousOriginalLine),
-        encodeVlq(segment.originalColumn - previousOriginalColumn),
-      ].join("");
+    encodedLines.push(
+      segments
+        .map((segment) => {
+          const encoded = [
+            encodeVlq(segment.generatedColumn - previousGeneratedColumn),
+            encodeVlq(segment.sourceIndex - previousSource),
+            encodeVlq(segment.originalLine - previousOriginalLine),
+            encodeVlq(segment.originalColumn - previousOriginalColumn),
+          ].join("");
 
-      previousGeneratedColumn = segment.generatedColumn;
-      previousSource = segment.sourceIndex;
-      previousOriginalLine = segment.originalLine;
-      previousOriginalColumn = segment.originalColumn;
-      return encoded;
-    }).join(","));
+          previousGeneratedColumn = segment.generatedColumn;
+          previousSource = segment.sourceIndex;
+          previousOriginalLine = segment.originalLine;
+          previousOriginalColumn = segment.originalColumn;
+          return encoded;
+        })
+        .join(","),
+    );
   }
 
   return encodedLines.join(";");
 }
 
 function encodeVlq(value: number): string {
-  let vlq = value < 0 ? ((-value) << 1) + 1 : value << 1;
+  let vlq = value < 0 ? (-value << 1) + 1 : value << 1;
   let encoded = "";
 
   do {
@@ -1063,7 +1132,7 @@ function findMatchingCssParen(source: string, start: number): number {
   while (index < source.length) {
     const char = source[index];
 
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       index = skipCssString(source, index);
       continue;
     }
@@ -1159,19 +1228,21 @@ async function cleanupGeneratedModuleVariants(currentPath: string, basePath: str
     return;
   }
 
-  await Promise.all(entries.map(async (entry) => {
-    if (entry !== baseName && !(entry.startsWith(variantPrefix) && entry.endsWith(".ts"))) {
-      return;
-    }
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (entry !== baseName && !(entry.startsWith(variantPrefix) && entry.endsWith(".ts"))) {
+        return;
+      }
 
-    const path = resolve(dir, entry);
+      const path = resolve(dir, entry);
 
-    if (path === currentPath) {
-      return;
-    }
+      if (path === currentPath) {
+        return;
+      }
 
-    await unlink(path).catch(() => {});
-  }));
+      await unlink(path).catch(() => {});
+    }),
+  );
 }
 
 function sourcePosition(source: string, index: number): { line: number; column: number } {
@@ -1205,7 +1276,10 @@ function parseModuleSourceLocation(codeframe: string): { line: number; column: n
 
 function indent(source: string, spaces: number): string {
   const prefix = " ".repeat(spaces);
-  return source.split("\n").map((line) => line.length > 0 ? `${prefix}${line}` : line).join("\n");
+  return source
+    .split("\n")
+    .map((line) => (line.length > 0 ? `${prefix}${line}` : line))
+    .join("\n");
 }
 
 function indexFromLineColumn(source: string, line: number, column: number): number {

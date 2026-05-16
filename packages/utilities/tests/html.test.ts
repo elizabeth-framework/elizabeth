@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { classNames, escapeHtml, isSafeHtml, safeHtml } from "../src/html.ts";
 
 describe("classNames()", () => {

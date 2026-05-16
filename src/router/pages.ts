@@ -1,9 +1,14 @@
 import { readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
-import { compileElizabethFile, createCompileGraphContext, type ClientManifestEntry, type CompileGraphContext, type CssModuleEntry } from "../compiler/file.ts";
-import type { RouteRoot } from "../config.ts";
 import type { ProjectCache } from "../compiler/cache.ts";
-
+import {
+  type ClientManifestEntry,
+  type CompileGraphContext,
+  type CssModuleEntry,
+  compileElizabethFile,
+  createCompileGraphContext,
+} from "../compiler/file.ts";
+import type { RouteRoot } from "../config.ts";
 
 export interface PageRoute {
   path: string;
@@ -62,9 +67,7 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
   const loadingRoutes: PageSpecialRoute[] = [];
 
   for (const pageRoot of pageRoots) {
-    const files = options.cache
-      ? findLizFilesFromCache(options.cache, pageRoot.dir)
-      : await findLizFiles(pageRoot.dir);
+    const files = options.cache ? findLizFilesFromCache(options.cache, pageRoot.dir) : await findLizFiles(pageRoot.dir);
 
     if (files.length === 0) {
       continue;
@@ -103,7 +106,15 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
         continue;
       }
 
-      const route = await buildSpecialRoute(sourcePath, pageRoot.dir, layoutFiles, pageRoot.basePath, special, options, context);
+      const route = await buildSpecialRoute(
+        sourcePath,
+        pageRoot.dir,
+        layoutFiles,
+        pageRoot.basePath,
+        special,
+        options,
+        context,
+      );
 
       if (special === "notFound") {
         notFoundRoutes.push(route);
@@ -127,7 +138,9 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
     notFoundRoutes,
     errorRoutes,
     loadingRoutes,
-    clientComponents: [...context.clientComponents.values()].sort((left, right) => left.moduleId.localeCompare(right.moduleId) || left.name.localeCompare(right.name)),
+    clientComponents: [...context.clientComponents.values()].sort(
+      (left, right) => left.moduleId.localeCompare(right.moduleId) || left.name.localeCompare(right.name),
+    ),
     cssModules: [...context.cssModules.values()].sort((left, right) => left.href.localeCompare(right.href)),
   };
 
@@ -275,7 +288,7 @@ async function findLizFiles(dir: string): Promise<string[]> {
     const path = resolve(dir, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(...await findLizFiles(path));
+      files.push(...(await findLizFiles(path)));
       continue;
     }
 
@@ -373,16 +386,19 @@ function routeMatcherFor(path: string): { pattern: RegExp; paramNames: string[] 
   }
 
   const paramNames: string[] = [];
-  const pattern = path.split("/").map((segment) => {
-    const match = /^\[([A-Za-z_$][\w$]*)\]$/.exec(segment);
+  const pattern = path
+    .split("/")
+    .map((segment) => {
+      const match = /^\[([A-Za-z_$][\w$]*)\]$/.exec(segment);
 
-    if (match) {
-      paramNames.push(match[1]);
-      return "([^/]+)";
-    }
+      if (match) {
+        paramNames.push(match[1]);
+        return "([^/]+)";
+      }
 
-    return escapeRegExp(segment);
-  }).join("/");
+      return escapeRegExp(segment);
+    })
+    .join("/");
 
   return {
     pattern: new RegExp(`^${pattern}$`),
@@ -403,16 +419,19 @@ function specialRouteMatcherFor(prefix: string): { pattern: RegExp; paramNames: 
     return { pattern: /^\/(?:.*)?$/, paramNames };
   }
 
-  const pattern = prefix.split("/").map((segment) => {
-    const match = /^\[([A-Za-z_$][\w$]*)\]$/.exec(segment);
+  const pattern = prefix
+    .split("/")
+    .map((segment) => {
+      const match = /^\[([A-Za-z_$][\w$]*)\]$/.exec(segment);
 
-    if (match) {
-      paramNames.push(match[1]);
-      return "([^/]+)";
-    }
+      if (match) {
+        paramNames.push(match[1]);
+        return "([^/]+)";
+      }
 
-    return escapeRegExp(segment);
-  }).join("/");
+      return escapeRegExp(segment);
+    })
+    .join("/");
 
   return {
     pattern: new RegExp(`^${pattern}(?:/.*)?$`),

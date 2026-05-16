@@ -13,11 +13,12 @@ export interface CookieOptions {
 const cookieNameRegex = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
 
 export function parseCookies(input: Request | Headers | string): Record<string, string> {
-  const header = typeof input === "string"
-    ? input
-    : input instanceof Headers
-      ? input.get("cookie") ?? ""
-      : input.headers.get("cookie") ?? "";
+  const header =
+    typeof input === "string"
+      ? input
+      : input instanceof Headers
+        ? (input.get("cookie") ?? "")
+        : (input.headers.get("cookie") ?? "");
 
   if (!header) {
     return {};

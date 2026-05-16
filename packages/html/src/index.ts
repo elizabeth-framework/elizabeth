@@ -1,12 +1,4 @@
-export type ClassValue =
-  | string
-  | number
-  | null
-  | undefined
-  | false
-  | true
-  | ClassValue[]
-  | { [key: string]: unknown };
+export type ClassValue = string | number | null | undefined | false | true | ClassValue[] | { [key: string]: unknown };
 
 const safeHtmlMarker = Symbol.for("elizabeth.safeHtml");
 
@@ -88,8 +80,6 @@ export function safeHtml(value: string): SafeHtml {
 
 export function isSafeHtml(value: unknown): value is SafeHtml {
   return Boolean(
-    value &&
-      typeof value === "object" &&
-      (value as { [safeHtmlMarker]?: unknown })[safeHtmlMarker] === true,
+    value && typeof value === "object" && (value as { [safeHtmlMarker]?: unknown })[safeHtmlMarker] === true,
   );
 }

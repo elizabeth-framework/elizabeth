@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createLogger } from "../src/index.ts";
 
 function makeSink() {

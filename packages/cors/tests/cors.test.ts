@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { cors } from "../src/index.ts";
 
 function preflight(headers: Record<string, string> = {}): Request {

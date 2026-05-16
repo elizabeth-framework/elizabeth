@@ -46,10 +46,7 @@ export async function validate<S extends StandardSchemaV1>(schema: S, value: unk
 export async function safeValidate<S extends StandardSchemaV1>(
   schema: S,
   value: unknown,
-): Promise<
-  | { success: true; data: InferOutput<S> }
-  | { success: false; error: SchemaValidationError }
-> {
+): Promise<{ success: true; data: InferOutput<S> } | { success: false; error: SchemaValidationError }> {
   try {
     const data = await validate(schema, value);
     return { success: true, data };
@@ -70,11 +67,12 @@ export async function validateSearchParams<S extends StandardSchemaV1>(
   input: Request | URL | string,
   schema: S,
 ): Promise<InferOutput<S>> {
-  const params = input instanceof Request
-    ? new URL(input.url).searchParams
-    : input instanceof URL
-      ? input.searchParams
-      : new URL(input).searchParams;
+  const params =
+    input instanceof Request
+      ? new URL(input.url).searchParams
+      : input instanceof URL
+        ? input.searchParams
+        : new URL(input).searchParams;
   const obj: Record<string, string | string[]> = {};
   for (const key of params.keys()) {
     const values = params.getAll(key);

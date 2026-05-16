@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scrypt, timingSafeEqual as nodeTimingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual as nodeTimingSafeEqual, randomBytes, scrypt } from "node:crypto";
 
 export interface ScryptOptions {
   N?: number;
@@ -25,14 +25,7 @@ export async function hashPassword(password: string, options: ScryptOptions = {}
   const salt = randomBytes(16);
   const derived = await deriveScrypt(password, salt, config);
 
-  return [
-    SCRYPT_PREFIX,
-    config.N,
-    config.r,
-    config.p,
-    base64UrlEncode(salt),
-    base64UrlEncode(derived),
-  ].join("$");
+  return [SCRYPT_PREFIX, config.N, config.r, config.p, base64UrlEncode(salt), base64UrlEncode(derived)].join("$");
 }
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
@@ -55,8 +48,12 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   const expected = base64UrlDecode(parts[5]);
 
   if (
-    !Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p) ||
-    !salt || !expected || expected.byteLength === 0
+    !Number.isInteger(N) ||
+    !Number.isInteger(r) ||
+    !Number.isInteger(p) ||
+    !salt ||
+    !expected ||
+    expected.byteLength === 0
   ) {
     return false;
   }
@@ -137,25 +134,15 @@ export function hmac(value: string, secret: string, algorithm: "sha256" | "sha38
   return base64UrlEncode(createHmac(algorithm, secret).update(value).digest());
 }
 
-function deriveScrypt(
-  password: string,
-  salt: Buffer | Uint8Array,
-  options: Required<ScryptOptions>,
-): Promise<Buffer> {
+function deriveScrypt(password: string, salt: Buffer | Uint8Array, options: Required<ScryptOptions>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    scrypt(
-      password,
-      salt,
-      options.keyLength,
-      { N: options.N, r: options.r, p: options.p },
-      (err, derived) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(derived);
-        }
-      },
-    );
+    scrypt(password, salt, options.keyLength, { N: options.N, r: options.r, p: options.p }, (err, derived) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(derived);
+      }
+    });
   });
 }
 

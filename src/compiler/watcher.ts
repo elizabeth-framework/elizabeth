@@ -1,6 +1,6 @@
-import chokidar, { type FSWatcher } from "chokidar";
 import { dirname, join } from "node:path";
-import { ProjectCache } from "./cache";
+import chokidar, { type FSWatcher } from "chokidar";
+import type { ProjectCache } from "./cache";
 
 export function startWatcher(root: string, cache: ProjectCache): FSWatcher {
   const srcRoot = join(root, "src");

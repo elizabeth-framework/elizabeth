@@ -57,7 +57,7 @@ export async function retry<T>(
       lastError = error;
 
       if (attempt < attempts - 1) {
-        await sleep(delay * Math.pow(backoff, attempt));
+        await sleep(delay * backoff ** attempt);
       }
     }
   }
