@@ -1,0 +1,25 @@
+{
+  "name": "@elizabeth-js/serve-file",
+  "version": "0.0.1",
+  "description": "Static file serving with ETag, Last-Modified, Range, and HEAD support.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "dependencies": {
+    "@elizabeth-js/etag": "workspace:*"
+  }
+}

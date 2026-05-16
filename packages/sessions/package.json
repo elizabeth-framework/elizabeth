@@ -1,0 +1,26 @@
+{
+  "name": "@elizabeth-js/sessions",
+  "version": "0.0.1",
+  "description": "Signed cookie sessions on top of @elizabeth-js/crypto and @elizabeth-js/cookies.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "dependencies": {
+    "@elizabeth-js/crypto": "workspace:*",
+    "@elizabeth-js/cookies": "workspace:*"
+  }
+}

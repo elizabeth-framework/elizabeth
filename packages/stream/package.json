@@ -1,0 +1,25 @@
+{
+  "name": "@elizabeth-js/stream",
+  "version": "0.0.1",
+  "description": "streamResponse and Server-Sent Events helpers.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "dependencies": {
+    "@elizabeth-js/http": "workspace:*"
+  }
+}
