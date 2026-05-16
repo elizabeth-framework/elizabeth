@@ -1,0 +1,36 @@
+@default
+<ErrorPage>
+  <style>
+    .error-page {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      text-align: center;
+    }
+
+    .error-page h1 {
+      color: #1e293b;
+      font-size: 3rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .error-page p {
+      color: #475569;
+      font-size: 0.9rem;
+    }
+
+    .error-page code {
+      color: #64748b;
+      font-size: 0.8rem;
+    }
+  </style>
+
+  <div className="error-page">
+    <h1>Something went wrong.</h1>
+    <p>{ctx.error?.message ?? "The page failed to render."}</p>
+    <code>error.liz</code>
+  </div>
+</ErrorPage>
+

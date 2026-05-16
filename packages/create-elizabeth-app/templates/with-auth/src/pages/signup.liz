@@ -1,0 +1,78 @@
+@default
+<SignupPage>
+  <style>
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-width: 320px;
+    }
+
+    .auth-form h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #f1f5f9;
+      letter-spacing: -0.02em;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    label {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    input {
+      padding: 0.6rem 0.75rem;
+      font-size: 0.9rem;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.5rem;
+      color: #f1f5f9;
+      outline: none;
+      font-family: inherit;
+    }
+
+    input:focus { border-color: rgba(124, 58, 237, 0.6); }
+
+    button {
+      padding: 0.7rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border-radius: 0.5rem;
+      background: #7c3aed;
+      border: none;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover { background: #6d28d9; }
+
+    .meta {
+      font-size: 0.75rem;
+      color: #64748b;
+      text-align: center;
+    }
+  </style>
+
+  <form className="auth-form" method="post" action="/api/auth/signup">
+    <h1>Create an account</h1>
+    <div className="field">
+      <label htmlFor="username">Username</label>
+      <input id="username" name="username" type="text" required minLength={3} autoComplete="username" />
+    </div>
+    <div className="field">
+      <label htmlFor="password">Password</label>
+      <input id="password" name="password" type="password" required minLength={8} autoComplete="new-password" />
+    </div>
+    <button type="submit">Sign up</button>
+    <p className="meta">
+      Already have an account? <a href="/login">Log in</a> instead.
+    </p>
+  </form>
+</SignupPage>
