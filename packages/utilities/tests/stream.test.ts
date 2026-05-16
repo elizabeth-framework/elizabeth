@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { formatSseMessage, sse, streamResponse } from "../src/stream.ts";
 
 async function* gen<T>(items: T[]): AsyncGenerator<T> {

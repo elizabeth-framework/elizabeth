@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   badRequest,
   conflict,
@@ -25,7 +25,10 @@ describe("json()", () => {
   });
 
   test("honors custom status and merges headers without overriding caller content-type", async () => {
-    const res = json({ id: 1 }, { status: 201, headers: { "x-test": "yes", "content-type": "application/vnd.api+json" } });
+    const res = json(
+      { id: 1 },
+      { status: 201, headers: { "x-test": "yes", "content-type": "application/vnd.api+json" } },
+    );
     expect(res.status).toBe(201);
     expect(res.headers.get("x-test")).toBe("yes");
     expect(res.headers.get("content-type")).toBe("application/vnd.api+json");
@@ -97,13 +100,27 @@ describe("error()", () => {
 });
 
 describe("error shortcuts", () => {
-  test("badRequest is 400", () => { expect(badRequest().status).toBe(400); });
-  test("unauthorized is 401", () => { expect(unauthorized().status).toBe(401); });
-  test("forbidden is 403", () => { expect(forbidden().status).toBe(403); });
-  test("notFoundResponse is 404", () => { expect(notFoundResponse().status).toBe(404); });
-  test("conflict is 409", () => { expect(conflict().status).toBe(409); });
-  test("unprocessable is 422", () => { expect(unprocessable().status).toBe(422); });
-  test("internalServerError is 500", () => { expect(internalServerError().status).toBe(500); });
+  test("badRequest is 400", () => {
+    expect(badRequest().status).toBe(400);
+  });
+  test("unauthorized is 401", () => {
+    expect(unauthorized().status).toBe(401);
+  });
+  test("forbidden is 403", () => {
+    expect(forbidden().status).toBe(403);
+  });
+  test("notFoundResponse is 404", () => {
+    expect(notFoundResponse().status).toBe(404);
+  });
+  test("conflict is 409", () => {
+    expect(conflict().status).toBe(409);
+  });
+  test("unprocessable is 422", () => {
+    expect(unprocessable().status).toBe(422);
+  });
+  test("internalServerError is 500", () => {
+    expect(internalServerError().status).toBe(500);
+  });
 });
 
 describe("methodNotAllowed()", () => {

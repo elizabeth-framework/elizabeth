@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { defineApiRoute, defineConfig } from "../src/config.ts";
 
 describe("defineConfig()", () => {
@@ -26,7 +26,9 @@ describe("defineApiRoute()", () => {
       request: new Request("http://localhost/api/x"),
       params: {},
       locals: {},
-      get url() { return new URL("http://localhost/api/x"); },
+      get url() {
+        return new URL("http://localhost/api/x");
+      },
     };
 
     const getRes = await route.GET!(ctx);
