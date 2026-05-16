@@ -34,7 +34,22 @@ interface DevRenderResult {
   kind: DevRouteKind;
 }
 
-export function createElizabethDevHandler(options: ElizabethDevOptions): (request: Request) => Promise<Response> {
+export interface RouteSummary {
+  pages: { path: string; sourcePath: string }[];
+  apis: { path: string; methods: string[]; sourcePath: string }[];
+  specials: {
+    notFound: number;
+    error: number;
+    loading: number;
+  };
+}
+
+export interface ElizabethDevHandler {
+  fetch(request: Request): Promise<Response>;
+  getRouteSummary(): Promise<RouteSummary>;
+}
+
+export function createElizabethDevHandler(options: ElizabethDevOptions): ElizabethDevHandler {
   const root = resolve(options.root);
   const frameworkRoot = resolve(options.frameworkRoot);
   const pagesDir = resolve(options.pagesDir ?? resolve(root, "src/pages"));
@@ -68,7 +83,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
   });
   hmr.start();
 
-  return async function handleElizabethDevRequest(request: Request): Promise<Response> {
+  async function fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/_elizabeth/hmr") {
@@ -98,7 +113,30 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): (reques
     }
 
     return result.response;
-  };
+  }
+
+  async function getRouteSummary(): Promise<RouteSummary> {
+    const [manifest, apis] = await Promise.all([getManifest(), getApiRoutes()]);
+
+    return {
+      pages: manifest.routes.map((route) => ({
+        path: route.path,
+        sourcePath: route.sourcePath,
+      })),
+      apis: apis.map((route) => ({
+        path: route.path,
+        methods: route.methods,
+        sourcePath: route.sourcePath,
+      })),
+      specials: {
+        notFound: manifest.notFoundRoutes.length,
+        error: manifest.errorRoutes.length,
+        loading: manifest.loadingRoutes.length,
+      },
+    };
+  }
+
+  return { fetch, getRouteSummary };
 
   async function render(pathname: string, request: Request): Promise<DevRenderResult> {
     if (pathname.startsWith("/.well-known/appspecific/")) {
@@ -805,7 +843,7 @@ async function renderCssModule(
 
 export function startElizabethDevServer(options: ElizabethDevOptions): ReturnType<typeof Bun.serve> {
   const requestedPort = options.port ?? 3712;
-  const fetch = createElizabethDevHandler(options);
+  const handler = createElizabethDevHandler(options);
   let port = requestedPort;
 
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -813,7 +851,7 @@ export function startElizabethDevServer(options: ElizabethDevOptions): ReturnTyp
       const server = Bun.serve({
         port,
         idleTimeout: 255,
-        fetch,
+        fetch: handler.fetch,
       });
 
       printDevServerReady({
@@ -821,6 +859,16 @@ export function startElizabethDevServer(options: ElizabethDevOptions): ReturnTyp
         requestedPort,
         root: options.root,
       });
+
+      handler
+        .getRouteSummary()
+        .then((summary) => {
+          printRouteSummary(summary);
+        })
+        .catch((error) => {
+          console.warn("Could not discover routes:", error instanceof Error ? error.message : error);
+        });
+
       return server;
     } catch (error) {
       if (!isPortInUseError(error)) {
@@ -863,6 +911,55 @@ Elizabeth dev server
   Local:   http://localhost:${options.port}
            http://127.0.0.1:${options.port}${portNote}
 `);
+}
+
+export function formatRouteSummary(summary: RouteSummary): string {
+  const lines: string[] = [];
+  const pageCount = summary.pages.length;
+  const apiCount = summary.apis.length;
+
+  lines.push(
+    `Routes (${pageCount} ${pageCount === 1 ? "page" : "pages"}, ${apiCount} ${apiCount === 1 ? "api" : "apis"})`,
+  );
+  lines.push("");
+
+  if (summary.pages.length > 0) {
+    lines.push("  Pages");
+    for (const page of summary.pages) {
+      lines.push(`    ${page.path}`);
+    }
+    lines.push("");
+  }
+
+  if (summary.apis.length > 0) {
+    lines.push("  API");
+    for (const api of summary.apis) {
+      const methods = api.methods.length > 0 ? api.methods.join(",") : "*";
+      lines.push(`    ${methods.padEnd(20)} ${api.path}`);
+    }
+    lines.push("");
+  }
+
+  const specials: string[] = [];
+  if (summary.specials.notFound > 0) specials.push(`${summary.specials.notFound} 404`);
+  if (summary.specials.error > 0) specials.push(`${summary.specials.error} error`);
+  if (summary.specials.loading > 0) specials.push(`${summary.specials.loading} loading`);
+
+  if (specials.length > 0) {
+    lines.push(`  Boundaries: ${specials.join(", ")}`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function printRouteSummary(summary: RouteSummary): void {
+  if (summary.pages.length === 0 && summary.apis.length === 0) {
+    console.log("No routes discovered.\n");
+    return;
+  }
+
+  console.log(formatRouteSummary(summary));
 }
 
 function htmlResponse(html: string, status = 200): Response {
