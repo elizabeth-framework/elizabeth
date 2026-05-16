@@ -1,0 +1,22 @@
+{
+  "name": "@elizabeth-js/etag",
+  "version": "0.0.1",
+  "description": "Weak/strong ETag generation, If-None-Match matching, and 304 responses.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

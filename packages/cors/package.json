@@ -1,0 +1,22 @@
+{
+  "name": "@elizabeth-js/cors",
+  "version": "0.0.1",
+  "description": "CORS preflight + actual-response handler with origin matching.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

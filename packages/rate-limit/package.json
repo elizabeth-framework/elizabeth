@@ -1,0 +1,22 @@
+{
+  "name": "@elizabeth-js/rate-limit",
+  "version": "0.0.1",
+  "description": "Token-bucket rate limiter with pluggable store and a built-in memory store.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

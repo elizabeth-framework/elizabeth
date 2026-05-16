@@ -1,0 +1,22 @@
+{
+  "name": "@elizabeth-js/crypto",
+  "version": "0.0.1",
+  "description": "scrypt password hashing, HMAC signing, randomToken, timing-safe equal.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

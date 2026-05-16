@@ -1,0 +1,25 @@
+{
+  "name": "@elizabeth-js/schema",
+  "version": "0.0.1",
+  "description": "Standard Schema V1 adapter (works with zod/valibot/arktype) plus validate, validateBody, validateSearchParams.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "dependencies": {
+    "@elizabeth-js/request": "workspace:*"
+  }
+}

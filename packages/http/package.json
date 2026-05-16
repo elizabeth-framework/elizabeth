@@ -1,0 +1,22 @@
+{
+  "name": "@elizabeth-js/http",
+  "version": "0.0.1",
+  "description": "Response builders for status codes and content types.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

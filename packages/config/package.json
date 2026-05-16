@@ -1,0 +1,22 @@
+{
+  "name": "@elizabeth-js/config",
+  "version": "0.0.1",
+  "description": "defineConfig + defineApiRoute and shared route type re-exports for typed elizabeth.config.ts files.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
