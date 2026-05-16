@@ -17,6 +17,7 @@
     "test": "bun test ./tests"
   },
   "devDependencies": {
+    "@elizabeth-js/async": "workspace:*",
     "@types/bun": "latest"
   }
 }
