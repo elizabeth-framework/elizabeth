@@ -126,4 +126,4 @@ Packages that depend on each other (e.g. `sessions` → `crypto` + `cookies`) de
 
 ## License
 
-MIT (see [LICENSE.md](../LICENSE.md) in the monorepo root).
+Apache 2.0 (see [LICENSE.md](../LICENSE.md) in the monorepo root).
