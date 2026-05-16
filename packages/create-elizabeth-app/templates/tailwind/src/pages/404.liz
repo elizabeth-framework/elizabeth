@@ -1,0 +1,10 @@
+@default
+<NotFoundPage>
+  <div className="flex flex-col items-center gap-3">
+    <h1 className="text-8xl font-extrabold tracking-tighter text-slate-100 leading-none">404</h1>
+    <p className="text-sm text-slate-400">Page not found.</p>
+    <a href="/" className="text-xs font-medium text-slate-500 hover:text-white transition-colors no-underline">
+      Back to home
+    </a>
+  </div>
+</NotFoundPage>

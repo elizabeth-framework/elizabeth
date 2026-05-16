@@ -1,0 +1,85 @@
+import { clientState } from "elizabeth/client"
+
+
+@client
+@public
+<AuthStatus>
+
+  const [state, setState] = clientState({ status: "loading", username: null });
+
+  async function refresh() {
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+    setState({
+      status: data.user ? "authenticated" : "anonymous",
+      username: data.user ? data.user.username : null,
+    });
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST", headers: { accept: "application/json" } });
+    setState({ status: "anonymous", username: null });
+  }
+
+  if (state.status === "loading") {
+    refresh();
+  }
+
+  <style>
+    .status {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+      padding: 1.25rem 1.5rem;
+      background: rgba(124, 58, 237, 0.06);
+      border: 1px solid rgba(124, 58, 237, 0.2);
+      border-radius: 0.75rem;
+      min-width: 280px;
+    }
+
+    .status p { font-size: 0.85rem; color: #cbd5e1; }
+    .status strong { color: #ede9fe; }
+
+    .actions { display: flex; gap: 0.5rem; }
+
+    button, .link-btn {
+      padding: 0.5rem 0.9rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.03);
+      color: #e2e8f0;
+      text-decoration: none;
+      font-family: inherit;
+    }
+
+    button:hover, .link-btn:hover { background: rgba(255, 255, 255, 0.06); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+
+  <div className="status">
+    {state.status === "loading" && <p>Checking session...</p>}
+
+    {state.status === "anonymous" && (
+      <>
+        <p>You are not signed in.</p>
+        <div className="actions">
+          <a className="link-btn" href="/login">Log in</a>
+          <a className="link-btn" href="/signup">Sign up</a>
+        </div>
+      </>
+    )}
+
+    {state.status === "authenticated" && (
+      <>
+        <p>Signed in as <strong>{state.username}</strong>.</p>
+        <div className="actions">
+          <button onClick={() => logout()}>Log out</button>
+        </div>
+      </>
+    )}
+  </div>
+</AuthStatus>

@@ -1,26 +1,59 @@
 #!/usr/bin/env bun
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
+
+const AVAILABLE_TEMPLATES = ["default", "tailwind", "with-auth"] as const;
+type TemplateName = (typeof AVAILABLE_TEMPLATES)[number];
 
 interface CreateOptions {
   targetDir: string;
   packageName: string;
   elizabethSpecifier: string;
+  template: TemplateName;
   force: boolean;
 }
+
+interface TemplateExtras {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  postInstallNotes?: string[];
+}
+
+const TEMPLATE_EXTRAS: Record<TemplateName, TemplateExtras> = {
+  default: {},
+  tailwind: {
+    devDependencies: {
+      "@tailwindcss/vite": "^4.2.4",
+      tailwindcss: "^4.2.4",
+    },
+  },
+  "with-auth": {
+    postInstallNotes: [
+      "1. Copy .env.example to .env and set SESSION_SECRET.",
+      "   bun -e \"console.log(crypto.getRandomValues(new Uint8Array(32)).reduce((a,b)=>a+b.toString(16).padStart(2,'0'),''))\"",
+    ],
+  },
+};
 
 const options = parseArgs(Bun.argv.slice(2));
 await createApp(options);
 
 async function createApp(options: CreateOptions): Promise<void> {
   const target = resolve(process.cwd(), options.targetDir);
-  const template = resolve(import.meta.dir, "../template");
+  const template = resolve(import.meta.dir, `../templates/${options.template}`);
+
+  if (!existsSync(template)) {
+    console.error(`Template not found at ${template}.`);
+    console.error(`Available templates: ${AVAILABLE_TEMPLATES.join(", ")}`);
+    process.exit(1);
+  }
 
   await assertWritableTarget(target, options.force);
   await copyTemplate(template, target);
   await writeGeneratedPackageJson(target, options);
 
-  console.log(`Created Elizabeth app in ${target}`);
+  console.log(`Created Elizabeth app in ${target} (template: ${options.template})`);
   console.log("");
   console.log("Installing dependencies...");
 
@@ -44,6 +77,16 @@ async function createApp(options: CreateOptions): Promise<void> {
   console.log("Next:");
   for (const command of nextCommands(options.targetDir)) {
     console.log(`  ${command}`);
+  }
+
+  const notes = TEMPLATE_EXTRAS[options.template].postInstallNotes;
+
+  if (notes?.length) {
+    console.log("");
+    console.log("Before you start:");
+    for (const note of notes) {
+      console.log(`  ${note}`);
+    }
   }
 }
 
@@ -83,31 +126,30 @@ function shouldSkipTemplateEntry(name: string): boolean {
 }
 
 async function writeGeneratedPackageJson(target: string, options: CreateOptions): Promise<void> {
-  await writeFile(
-    resolve(target, "package.json"),
-    `${JSON.stringify(
-      {
-        name: options.packageName,
-        version: "0.0.1",
-        type: "module",
-        scripts: {
-          dev: "elizabeth dev",
-          build: "elizabeth build",
-          start: "bun dist/server.js",
-          check: "tsc --noEmit",
-        },
-        dependencies: {
-          elizabeth: options.elizabethSpecifier,
-        },
-        devDependencies: {
-          typescript: "^6.0.3",
-          vite: "^8.0.10",
-        },
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  const extras = TEMPLATE_EXTRAS[options.template];
+
+  const generated = {
+    name: options.packageName,
+    version: "0.0.1",
+    type: "module",
+    scripts: {
+      dev: "elizabeth dev",
+      build: "elizabeth build",
+      start: "bun dist/server.js",
+      check: "tsc --noEmit",
+    },
+    dependencies: {
+      elizabeth: options.elizabethSpecifier,
+      ...(extras.dependencies ?? {}),
+    },
+    devDependencies: {
+      typescript: "^6.0.3",
+      vite: "^8.0.10",
+      ...(extras.devDependencies ?? {}),
+    },
+  };
+
+  await writeFile(resolve(target, "package.json"), `${JSON.stringify(generated, null, 2)}\n`);
 }
 
 async function assertWritableTarget(target: string, force: boolean): Promise<void> {
@@ -141,12 +183,26 @@ function parseArgs(args: string[]): CreateOptions {
     process.exit(1);
   }
 
+  const requestedTemplate = readOption(args, "--template") ?? "default";
+  const template = parseTemplate(requestedTemplate);
+
   return {
     targetDir,
     packageName: packageNameFor(targetDir, process.cwd()),
     elizabethSpecifier: readOption(args, "--elizabeth") ?? defaultElizabethSpecifier(),
+    template,
     force: args.includes("--force"),
   };
+}
+
+function parseTemplate(value: string): TemplateName {
+  if ((AVAILABLE_TEMPLATES as readonly string[]).includes(value)) {
+    return value as TemplateName;
+  }
+
+  console.error(`Unknown template: ${value}`);
+  console.error(`Available templates: ${AVAILABLE_TEMPLATES.join(", ")}`);
+  process.exit(1);
 }
 
 function readOption(args: string[], name: string): string | null {
@@ -181,7 +237,14 @@ Usage:
   bunx @elizabeth-js/create-elizabeth-app my-app
 
 Options:
+  --template <name>        Project template. One of: ${AVAILABLE_TEMPLATES.join(", ")} (default: default).
   --elizabeth <specifier>  Override the elizabeth dependency specifier.
   --force                  Allow writing into a non-empty target directory.
+
+Templates:
+  default     Minimal starter with scoped styles and a client island counter.
+  tailwind    Same starter wired up with Tailwind CSS v4 via @tailwindcss/vite.
+  with-auth   Signup / login / logout flow using HMAC-signed cookie sessions
+              and scrypt password hashing (everything inlined, no extra deps).
 `);
 }
