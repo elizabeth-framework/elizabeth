@@ -1,95 +1,77 @@
 # Contributing to Elizabeth
 
-Thanks for your interest in contributing to Elizabeth 💜
+Thanks for taking an interest. This file covers how the monorepo is laid out, how to run tests locally, and how releases are cut.
 
-Elizabeth is still early, so bug reports, ideas, documentation fixes, tests, and small improvements are all welcome.
+## Repo layout
 
-## Ways to contribute
+- `src/` — the framework core (compiler, dev server, router, runtime).
+- `packages/<name>/` — individual `@elizabeth-js/<name>` packages (`crypto`, `cookies`, `http`, …). Each has its own `package.json`, `src/index.ts`, `tests/`, and `README.md`.
+- `packages/create-elizabeth-app/` — the `bun create elizabeth-app` scaffolder (published as `create-elizabeth-app`).
+- `packages/language-server/`, `packages/vscode-elizabeth/` — editor tooling. `language-server` is private; `vscode-elizabeth-language-extension` ships to the VS Code marketplace, not npm.
+- `tests/` — unit + integration tests for the core framework.
+- `bench/` — local performance benchmarks (not run in CI).
 
-You can help by:
-
-- Reporting bugs
-- Suggesting features or design ideas
-- Improving documentation
-- Adding tests
-- Improving examples
-- Fixing issues
-- Reviewing pull requests
-- Sharing projects built with Elizabeth
-
-## Before opening a pull request
-
-Please try to keep pull requests focused and reviewable.
-
-Good pull requests usually:
-
-- Change one thing at a time
-- Include tests when behavior changes
-- Avoid unnecessary dependencies
-- Preserve existing public APIs unless the change is intentional
-- Explain why the change is useful
-
-## Development setup
-
-Elizabeth uses Bun.
+## Setup
 
 ```bash
 bun install
-bun run check
-bun run test
-````
-
-For local development:
-
-```bash
-bun run dev
 ```
 
-To build:
+## Useful scripts
+
+| Script | What it does |
+| --- | --- |
+| `bun run check` | Typecheck (`tsc --noEmit`) |
+| `bun run test` | Run unit + integration tests (`./tests`) and every package's tests (`./packages/*/tests`) |
+| `bun run test:packages` | Run only the per-package tests |
+| `bun run biome` | Apply Biome formatter + linter (`biome check --write`) |
+| `bun run biome:ci` | Read-only Biome check (used in CI) |
+| `bun run format` / `bun run format:check` | Formatter only |
+| `bun run lint` / `bun run lint:fix` | Linter only |
+
+CI runs `bun run check` and `bun run test` on every PR — see `.github/workflows/ci.yml`.
+
+## Changesets — versioning and releases
+
+This repo uses [Changesets](https://github.com/changesets/changesets) to manage versions and changelogs for the `@elizabeth-js/*` packages.
+
+### When you make a user-visible change
+
+Run:
 
 ```bash
-bun run build
+bun run changeset
 ```
 
-## Pull request checklist
+You'll be asked which packages changed and whether the change is `patch`, `minor`, or `major`. A markdown file gets written under `.changeset/`. Commit it alongside your code change in the same PR.
 
-Before opening a pull request, please check:
+Tips:
+- One changeset can cover multiple packages — pick the ones whose semver actually changes.
+- Internal-only changes (CI tweaks, doc fixes, refactors with no API impact) don't need a changeset.
+- The `language-server` and `vscode-elizabeth-language-extension` packages are ignored by changesets — they have their own release flows.
 
-* [ ] The change has a clear scope
-* [ ] `bun run check` passes
-* [ ] `bun run test` passes
-* [ ] Tests were added or updated when useful
-* [ ] Documentation was updated if public behavior changed
-* [ ] No unnecessary dependencies were added
+### Checking what's pending
 
-## Reporting bugs
+```bash
+bun run changeset:status
+```
 
-When reporting a bug, please include:
+Shows which packages have queued changes and what the next version of each will be.
 
-* What you expected to happen
-* What actually happened
-* Steps to reproduce
-* Your Bun version
-* Your Elizabeth version
-* Any relevant error messages or logs
+### Cutting a release (maintainers)
 
-Please open security reports privately instead of creating a public issue.
-See [SECURITY.md](./SECURITY.md).
+1. Run `bun run changeset:version` — this consumes all pending changesets, bumps each affected package's `package.json`, and updates `CHANGELOG.md`. Commit the result.
+2. Run `bun run release` — this runs `changeset publish`, which publishes each package whose version is newer than what's on npm.
+3. The existing tag-triggered `.github/workflows/publish.yml` is still in place for the root `@elizabeth-js/elizabeth` and `create-elizabeth-app` packages. Long-term we'll likely consolidate everything behind `changeset publish`; for now, both paths coexist.
 
-## Feature ideas
+## Style
 
-Feature ideas are welcome in GitHub Discussions.
+- **Biome** handles formatting and a curated set of lint rules. Run `bun run biome` before pushing. CI calls `bun run biome:ci` so a PR with formatting drift will fail.
+- Match the surrounding code style. The project leans on plain TypeScript, Web Standards (`Request`/`Response`), and minimal dependencies.
+- Tests use `bun:test`. Each package has its own `tests/<name>.test.ts`.
 
-For larger changes, please start with a short design discussion before opening a large pull request.
+## Opening a PR
 
-## Code of Conduct
-
-Please be kind and respectful when participating in this project.
-
-By contributing, you agree to follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
-
-## Maintainer note
-
-Elizabeth is moving fast, so some APIs may change while the project is still in early development.
-
-Thank you for helping build Elizabeth.
+- Branch naming is flexible; `devin/<timestamp>-<topic>` is what the automation here uses.
+- Make sure `bun run check`, `bun run test`, and `bun run biome:ci` are all green locally.
+- Include a changeset if your PR touches anything that affects published packages.
