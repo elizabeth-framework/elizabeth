@@ -28,10 +28,7 @@ export async function POST({ request }: { request: Request }): Promise<Response>
   const accept = request.headers.get("accept") ?? "";
 
   if (accept.includes("application/json")) {
-    return Response.json(
-      { user: { id: user.id, username: user.username } },
-      { headers: { "set-cookie": cookie } },
-    );
+    return Response.json({ user: { id: user.id, username: user.username } }, { headers: { "set-cookie": cookie } });
   }
 
   return new Response(null, {
