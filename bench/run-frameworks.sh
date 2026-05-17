@@ -68,3 +68,4 @@ run_server_case "elizabeth" "cd '$APP' && ELIZABETH_REQUEST_LOGS=0 PORT='$PORT' 
 run_server_case "native-bun" "cd '$ROOT' && bun bench/servers/native-bun.ts"
 run_server_case "elysia" "cd '$ROOT/bench' && bun servers/elysia.ts"
 run_server_case "hono" "cd '$ROOT/bench' && bun servers/hono.ts"
+run_server_case "fastify" "cd '$ROOT/bench' && bun servers/fastify.ts"
