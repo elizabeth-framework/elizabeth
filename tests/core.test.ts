@@ -1392,6 +1392,71 @@ test("compileElizabeth surfaces structured ElizabethCompileError on bad markup",
   expect(formatted).toContain("^");
 });
 
+test("bench summarize parses framework section headings and bombardier output", async () => {
+  const { parseBenchOutput } = await import("../bench/summarize.ts");
+  const sample = `Framework benchmark
+Bun: 1.3.14
+
+## elizabeth
+
+== elizabeth: page / ==
+Bombardier 1.2.6 ...
+  Reqs/sec      12345.67
+  Latency Distribution
+     50%       1.23ms
+     75%       2.45ms
+     99%      45.67ms
+
+== elizabeth: json api /json ==
+  Reqs/sec     100000.00
+     50%       0.50ms
+     99%       9.99ms
+
+## hono
+
+== hono: page / ==
+  Reqs/sec       9999.99
+     50%       1.50ms
+     99%      40.00ms
+
+== hono: json api /json ==
+  Reqs/sec      85000.00
+     50%       0.75ms
+     99%      10.00ms
+`;
+
+  const entries = parseBenchOutput(sample);
+  expect(entries.length).toBe(4);
+  const eliz = entries.find((e) => e.framework === "elizabeth" && e.route === "page /");
+  expect(eliz?.reqsPerSec).toBe(12345.67);
+  expect(eliz?.p50).toBe("1.23ms");
+  expect(eliz?.p99).toBe("45.67ms");
+  const honoJson = entries.find((e) => e.framework === "hono" && e.route === "json api /json");
+  expect(honoJson?.reqsPerSec).toBe(85000);
+  expect(honoJson?.p99).toBe("10.00ms");
+});
+
+test("bench summarize parses single-framework mode (no ## headings)", async () => {
+  const { parseBenchOutput } = await import("../bench/summarize.ts");
+  const sample = `Elizabeth production benchmark
+
+== page / ==
+  Reqs/sec      30000.00
+     50%       0.85ms
+     99%      15.00ms
+
+== plain api /plain ==
+  Reqs/sec      80000.00
+     50%       0.30ms
+     99%       5.00ms
+`;
+
+  const entries = parseBenchOutput(sample);
+  expect(entries.length).toBe(2);
+  expect(entries[0].framework).toBe("elizabeth");
+  expect(entries[0].route).toBe("page /");
+  expect(entries[0].reqsPerSec).toBe(30000);
+  expect(entries[1].route).toBe("plain api /plain");
 test("formatLiz trims trailing whitespace and normalizes line endings", () => {
   
   const input = "@default\r\n<Home>  \r\n  <main>hi</main>\r\n</Home>\r\n";
