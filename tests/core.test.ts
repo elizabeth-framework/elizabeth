@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { compileElizabeth } from "../src/compiler/compile.ts";
+import { ElizabethCompileError, formatCompileError, syntaxError } from "../src/compiler/errors.ts";
 import { compileElizabethEndpointFile, compileElizabethFile } from "../src/compiler/file.ts";
 import { loadElizabethConfig } from "../src/config.ts";
 import { createElizabethDevHandler, formatRouteSummary, type RouteSummary } from "../src/dev/app.ts";
@@ -1177,6 +1178,11 @@ test("scoped <style> from a component is preserved inside the rendered HTML", as
 
     expect(html).toContain("<title>Styled</title>");
     expect(html).toContain("color: hotpink");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("formatRouteSummary renders pages, apis, and boundary counts", () => {
   const summary: RouteSummary = {
     pages: [
@@ -1320,4 +1326,66 @@ export function GET() {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("syntaxError carries file, line, column, and full source", () => {
+  const source = "line one\nline two\nline three\n";
+  const errorIndex = source.indexOf("two");
+  const error = syntaxError("foo.liz", source, errorIndex, "bad thing");
+
+  expect(error).toBeInstanceOf(ElizabethCompileError);
+  expect(error.name).toBe("ElizabethCompileError");
+  expect(error.file).toBe("foo.liz");
+  expect(error.line).toBe(2);
+  expect(error.column).toBe(6);
+  expect(error.message).toBe("foo.liz:2:6: bad thing");
+  expect(error.source).toBe(source);
+});
+
+test("formatCompileError prints a code frame with caret for compile errors", () => {
+  const source = ["@default", "<Home>", "  <main>broken", "</Home>"].join("\n");
+  const errorIndex = source.indexOf("broken");
+  const error = syntaxError("home.liz", source, errorIndex, "Missing closing tag");
+
+  const output = formatCompileError(error);
+  expect(output).toContain("home.liz:3:9: Missing closing tag");
+  expect(output).toContain("> 3 |   <main>broken");
+  expect(output).toContain("^");
+  expect(output).toContain("  2 | <Home>");
+  expect(output).toContain("  4 | </Home>");
+});
+
+test("formatCompileError parses bare 'file:line:col: msg' messages without a source", () => {
+  const error = new Error("/abs/path/page.liz:7:3: something broke");
+  const output = formatCompileError(error);
+  expect(output).toContain("/abs/path/page.liz:7:3: something broke");
+  expect(output).not.toContain("|");
+});
+
+test("formatCompileError falls back to the original error string when no location info exists", () => {
+  const output = formatCompileError(new Error("plain error"));
+  expect(output).toContain("plain error");
+});
+
+test("compileElizabeth surfaces structured ElizabethCompileError on bad markup", () => {
+  // Missing closing component tag triggers a syntaxError() inside the compiler.
+  const broken = `@default\n<Home>\n  <main>hi</main>\n`;
+  let caught: unknown = null;
+
+  try {
+    compileElizabeth(broken, "broken.liz");
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeInstanceOf(ElizabethCompileError);
+  const compileError = caught as ElizabethCompileError;
+  expect(compileError.file).toBe("broken.liz");
+  expect(compileError.line).toBeGreaterThan(0);
+  expect(compileError.source).toBe(broken);
+
+  const formatted = formatCompileError(compileError);
+  expect(formatted).toContain("broken.liz:");
+  expect(formatted).toContain("|");
+  expect(formatted).toContain("^");
 });

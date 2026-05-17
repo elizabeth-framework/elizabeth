@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { formatCompileError } from "../compiler/errors.ts";
 import { buildGlobalCssWithVite, defaultTailwindPlugins, findViteConfig, importVite } from "../css/global.ts";
 import { loadElizabethConfig } from "../config.ts";
 import { isNotFoundResult, isRedirectResult } from "../route.ts";
@@ -46,9 +47,7 @@ export async function buildElizabethApp(options: ElizabethBuildOptions): Promise
     outDir,
     onError(route, error) {
       console.warn(describeApiRouteBuildError(route, error));
-      if (error instanceof Error && error.stack) {
-        console.warn(error.stack);
-      }
+      console.warn(formatCompileError(error));
     },
   });
   assertNoRouteConflicts(manifest.routes.map((route) => ({ path: route.path, methods: ["GET", "HEAD"], sourcePath: route.sourcePath })), apiRoutes);

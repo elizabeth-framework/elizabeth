@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { formatCompileError } from "../compiler/errors.ts";
 import { type CompileGraphContext, createCompileGraphContext } from "../compiler/file.ts";
 import { createProjectContext } from "../compiler/project.ts";
 import { type ElizabethConfig, loadElizabethConfig } from "../config.ts";
@@ -490,9 +491,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
         context: apiCompileContext,
         onError(route, error) {
           console.warn(describeApiRouteBuildError(route, error));
-          if (error instanceof Error && error.stack) {
-            console.warn(error.stack);
-          }
+          console.warn(formatCompileError(error));
         },
       });
     }
