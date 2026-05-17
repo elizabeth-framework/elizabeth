@@ -2,12 +2,20 @@
 import { resolve } from "node:path";
 import { buildElizabethApp } from "./build/app.ts";
 import { startElizabethDevServer } from "./dev/app.ts";
+import { runFormatCli } from "./format/cli.ts";
 
 const [command, ...args] = Bun.argv.slice(2);
 
 if (!command || command === "help" || command === "--help" || command === "-h") {
   printHelp();
   process.exit(command ? 0 : 1);
+}
+
+if (command === "format") {
+  const result = await runFormatCli({ cwd: process.cwd(), args });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exit(result.exitCode);
 }
 
 if (command === "build") {
@@ -66,5 +74,6 @@ function printHelp(): void {
 Usage:
   elizabeth dev [--port 3712]
   elizabeth build [--outDir dist]
+  elizabeth format [files...] [--check] [--stdout]
 `);
 }

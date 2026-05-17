@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { compileElizabeth } from "../src/compiler/compile.ts";
 import { ElizabethCompileError, formatCompileError, syntaxError } from "../src/compiler/errors.ts";
 import { compileElizabethEndpointFile, compileElizabethFile } from "../src/compiler/file.ts";
+import { runFormatCli } from "../src/format/cli.ts";
+import { formatLiz } from "../src/format/format.ts";
 import { loadElizabethConfig } from "../src/config.ts";
 import { createElizabethDevHandler, formatRouteSummary, type RouteSummary } from "../src/dev/app.ts";
 import { buildApiRoutes, matchApiRoute } from "../src/router/api.ts";
@@ -1388,4 +1390,114 @@ test("compileElizabeth surfaces structured ElizabethCompileError on bad markup",
   expect(formatted).toContain("broken.liz:");
   expect(formatted).toContain("|");
   expect(formatted).toContain("^");
+});
+
+test("formatLiz trims trailing whitespace and normalizes line endings", () => {
+  
+  const input = "@default\r\n<Home>  \r\n  <main>hi</main>\r\n</Home>\r\n";
+  expect(formatLiz(input)).toBe("@default\n<Home>\n  <main>hi</main>\n</Home>\n");
+});
+
+test("formatLiz collapses 3+ blank lines to 2 and trims trailing blank lines", () => {
+  
+  const input = "@default\n<Home>\n\n\n\n\n  <main>hi</main>\n</Home>\n\n\n\n";
+  expect(formatLiz(input)).toBe("@default\n<Home>\n\n\n  <main>hi</main>\n</Home>\n");
+});
+
+test("formatLiz adds a single trailing newline when missing", () => {
+  
+  expect(formatLiz("@default\n<Home>\n</Home>")).toBe("@default\n<Home>\n</Home>\n");
+});
+
+test("formatLiz is idempotent", () => {
+  
+  const source = "@default\n<Home>\n\n  <main>hi</main>\n</Home>\n";
+  expect(formatLiz(formatLiz(source))).toBe(formatLiz(source));
+});
+
+test("formatLiz preserves blank string", () => {
+  
+  expect(formatLiz("")).toBe("");
+  expect(formatLiz("\n\n\n")).toBe("");
+});
+
+test("runFormatCli --check exits 1 when files need formatting", async () => {
+  
+  const root = await tempProject("format-check");
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await Bun.write(join(root, "src/pages/index.liz"), "@default\n<Home>   \n  <main>hi</main>  \n</Home>\n");
+    const result = await runFormatCli({ cwd: root, args: ["--check"] });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("src/pages/index.liz");
+    const onDisk = await Bun.file(join(root, "src/pages/index.liz")).text();
+    expect(onDisk).toContain("<Home>   ");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runFormatCli --write rewrites files in place", async () => {
+  
+  const root = await tempProject("format-write");
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    const file = join(root, "src/pages/index.liz");
+    await Bun.write(file, "@default\n<Home>   \n  <main>hi</main>  \n</Home>\n");
+    const result = await runFormatCli({ cwd: root, args: [] });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("formatted");
+    const onDisk = await Bun.file(file).text();
+    expect(onDisk).toBe("@default\n<Home>\n  <main>hi</main>\n</Home>\n");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runFormatCli --check on clean files exits 0", async () => {
+  
+  const root = await tempProject("format-clean");
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await Bun.write(join(root, "src/pages/index.liz"), "@default\n<Home>\n  <main>hi</main>\n</Home>\n");
+    const result = await runFormatCli({ cwd: root, args: ["--check"] });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("All .liz files already formatted");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runFormatCli --stdout prints the formatted output without writing", async () => {
+  
+  const root = await tempProject("format-stdout");
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    const file = join(root, "src/pages/index.liz");
+    await Bun.write(file, "@default\n<Home>   \n  <main>hi</main>\n</Home>\n");
+    const result = await runFormatCli({ cwd: root, args: ["--stdout", file] });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("@default\n<Home>\n  <main>hi</main>\n</Home>\n");
+    const onDisk = await Bun.file(file).text();
+    expect(onDisk).toContain("<Home>   ");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runFormatCli skips node_modules and dist", async () => {
+  
+  const root = await tempProject("format-skip");
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await mkdir(join(root, "node_modules/x"), { recursive: true });
+    await mkdir(join(root, "dist"), { recursive: true });
+    await Bun.write(join(root, "src/pages/index.liz"), "@default\n<Home>\n  <main>hi</main>\n</Home>\n");
+    await Bun.write(join(root, "node_modules/x/skip.liz"), "@default\n<Skip>   \n</Skip>\n");
+    await Bun.write(join(root, "dist/built.liz"), "@default\n<Built>   \n</Built>\n");
+    const result = await runFormatCli({ cwd: root, args: ["--check"] });
+    expect(result.exitCode).toBe(0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
