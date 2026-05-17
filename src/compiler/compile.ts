@@ -1,4 +1,5 @@
 import { parseSync } from "oxc-parser";
+import { ElizabethCompileError, syntaxError as makeSyntaxError } from "./errors.ts";
 import type {
   ClientAttributeBinding,
   ClientEvent,
@@ -3103,9 +3104,6 @@ function indent(source: string, spaces: number): string {
     .join("\n");
 }
 
-function syntaxError(sourceName: string, source: string, index: number, message: string): Error {
-  const lines = source.slice(0, index).split("\n");
-  const line = lines.length;
-  const column = lines.at(-1)!.length + 1;
-  return new Error(`${sourceName}:${line}:${column}: ${message}`);
+function syntaxError(sourceName: string, source: string, index: number, message: string): ElizabethCompileError {
+  return makeSyntaxError(sourceName, source, index, message);
 }
