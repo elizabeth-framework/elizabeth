@@ -25,8 +25,10 @@ test("loadElizabethConfig falls back to default routes when config is missing", 
     const config = await loadElizabethConfig(root);
 
     expect(config).toEqual({
-      pageRoutes: [{ dir: join(root, "src/pages"), basePath: "/" }],
-      apiRoutes: [{ dir: join(root, "src/api"), basePath: "/api" }],
+      middleware: [],
+      globalMiddlewareCount: 0,
+      pageRoutes: [{ dir: join(root, "src/pages"), basePath: "/", middleware: [], middlewareStart: 0 }],
+      apiRoutes: [{ dir: join(root, "src/api"), basePath: "/api", middleware: [], middlewareStart: 0 }],
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -91,12 +93,12 @@ export default {
     const config = await loadElizabethConfig(root);
 
     expect(config.pageRoutes).toEqual([
-      { dir: join(root, "src/pages"), basePath: "/" },
-      { dir: join(root, "src/docs"), basePath: "/docs" },
+      { dir: join(root, "src/pages"), basePath: "/", middleware: [], middlewareStart: 0 },
+      { dir: join(root, "src/docs"), basePath: "/docs", middleware: [], middlewareStart: 0 },
     ]);
     expect(config.apiRoutes).toEqual([
-      { dir: join(root, "src/api"), basePath: "/" },
-      { dir: join(root, "src/internal-api"), basePath: "/" },
+      { dir: join(root, "src/api"), basePath: "/", middleware: [], middlewareStart: 0 },
+      { dir: join(root, "src/internal-api"), basePath: "/", middleware: [], middlewareStart: 0 },
     ]);
   } finally {
     console.warn = originalWarn;
@@ -401,6 +403,38 @@ import { clientState } from "elizabeth/client";
   expect(counter.events).toEqual([{ id: 0, eventName: "click", handler: "() => setCount(count + 1)" }]);
 });
 
+test("compileElizabeth recognizes onReady hooks from client metadata", () => {
+  const result = compileElizabeth(`
+import { clientState, onReady } from "elizabeth/client";
+
+@client
+@public
+<Counter>
+  const [count, setCount] = clientState(0);
+  const setup = () => {
+    console.log("ready", count);
+    return () => console.log("clean");
+  };
+  const ping = () => console.log("ping");
+
+  onReady(() => {
+    ping();
+    return setup();
+  });
+
+  <button onClick={() => setCount(count + 1)}>{count}</button>
+</Counter>
+`);
+
+  const counter = result.clientComponents[0]!;
+
+  expect(counter.states).toEqual([{ name: "count", setter: "setCount", initialValue: "0" }]);
+  expect(counter.ready).toEqual([{ callback: '() => {\n    ping();\n    return setup();\n  }' }]);
+  expect(counter.clientFunctions.map((fn) => fn.name)).toEqual(["setup", "ping"]);
+  expect(counter.textBindings).toEqual([{ id: 0, expression: "count", reactive: true }]);
+  expect(counter.events).toEqual([{ id: 0, eventName: "click", handler: "() => setCount(count + 1)" }]);
+});
+
 test("compileElizabeth marks state-dependent markup blocks as reactive html bindings", () => {
   const result = compileElizabeth(`
 import { clientState } from "elizabeth/client";
@@ -585,6 +619,56 @@ import { clientState } from "elizabeth/client";
   expect(counter.states).toEqual([{ name: "count", setter: "setCount", initialValue: "0" }]);
   expect(counter.textBindings).toEqual([{ id: 0, expression: "count", reactive: true }]);
   expect(counter.events).toEqual([{ id: 0, eventName: "click", handler: "() => setCount(count + 1)" }]);
+});
+
+test("compileElizabeth supports fragment render roots", () => {
+  const result = compileElizabeth(`
+@default
+<Home>
+  const title = "Fragment root";
+
+  <>
+    <h1>{title}</h1>
+    <p>Works</p>
+  </>
+</Home>
+`);
+
+  expect(result.code).toContain('__html += "<h1" + ">";');
+  expect(result.code).toContain(")(title));");
+  expect(result.code).toContain('__html += "</p>";');
+});
+
+test("compileElizabeth supports render control blocks after style and logic", () => {
+  const result = compileElizabeth(`
+@default
+<Home>
+  const visible = true;
+
+  <style>
+    .page {
+      color: red;
+    }
+  </style>
+
+  const label = visible ? "Shown" : "Hidden";
+
+  if (visible) {
+    <>
+      <h1>{label}</h1>
+    </>
+  } else {
+    <div>Fallback</div>
+  }
+</Home>
+`);
+
+  expect(result.code).toContain("const visible = true;");
+  expect(result.code).toContain("const label = visible ? \"Shown\" : \"Hidden\";");
+  expect(result.code).toContain("if (visible) {");
+  expect(result.code).toContain(")(label));");
+  expect(result.code).toContain("else {");
+  expect(result.code).toContain('__html += "Fallback";');
 });
 
 test("compileElizabeth keeps later component siblings after native elements in client islands", () => {
@@ -1330,6 +1414,109 @@ export function GET() {
   }
 });
 
+test("dev middleware runs global, route-root, and nested middleware in order", async () => {
+  const root = await tempProject("middleware");
+
+  try {
+    await mkdir(join(root, "src/pages/admin"), { recursive: true });
+    await mkdir(join(root, "src/api/admin"), { recursive: true });
+
+    await Bun.write(
+      join(root, "elizabeth.config.ts"),
+      `
+const globalMiddleware = async (ctx, next) => {
+  ctx.locals.order = ["global"];
+  return await next();
+};
+
+const pageRootMiddleware = async (ctx, next) => {
+  ctx.locals.order.push("page-root");
+  return await next();
+};
+
+const apiRootMiddleware = async (ctx, next) => {
+  ctx.locals.order.push("api-root");
+  return await next();
+};
+
+export default {
+  middleware: [globalMiddleware],
+  pageRoutes: {
+    "src/pages": {
+      basePath: "/",
+      middleware: [pageRootMiddleware],
+    },
+  },
+  apiRoutes: {
+    "src/api": {
+      basePath: "/api",
+      middleware: [apiRootMiddleware],
+    },
+  },
+};
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/admin/middleware.ts"),
+      `
+export default async function adminMiddleware(ctx, next) {
+  ctx.locals.order.push("page-local");
+  return await next();
+}
+`,
+    );
+    await Bun.write(
+      join(root, "src/pages/admin/index.liz"),
+      `
+@default
+<Admin>
+  <main>{ctx.locals.order.join(">")}</main>
+</Admin>
+`,
+    );
+    await Bun.write(
+      join(root, "src/api/admin/middleware.ts"),
+      `
+export default async function apiAdminMiddleware(ctx, next) {
+  ctx.locals.order.push("api-local");
+  return await next();
+}
+`,
+    );
+    await Bun.write(
+      join(root, "src/api/admin/info.ts"),
+      `
+export function GET(ctx) {
+  return Response.json({ order: ctx.locals.order });
+}
+`,
+    );
+
+    const handler = createElizabethDevHandler({
+      root,
+      frameworkRoot: process.cwd(),
+      outDir: join(root, ".elizabeth"),
+    });
+    const originalLog = console.log;
+
+    console.log = () => {};
+    let page = "";
+    let api: unknown;
+
+    try {
+      page = await handler.fetch(new Request("http://localhost/admin")).then((response) => response.text());
+      api = await handler.fetch(new Request("http://localhost/api/admin/info")).then((response) => response.json());
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(page).toContain("global&gt;page-root&gt;page-local");
+    expect(api).toEqual({ order: ["global", "api-root", "api-local"] });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("syntaxError carries file, line, column, and full source", () => {
   const source = "line one\nline two\nline three\n";
   const errorIndex = source.indexOf("two");
@@ -1453,10 +1640,12 @@ test("bench summarize parses single-framework mode (no ## headings)", async () =
 
   const entries = parseBenchOutput(sample);
   expect(entries.length).toBe(2);
-  expect(entries[0].framework).toBe("elizabeth");
-  expect(entries[0].route).toBe("page /");
-  expect(entries[0].reqsPerSec).toBe(30000);
-  expect(entries[1].route).toBe("plain api /plain");
+  expect(entries[0]?.framework).toBe("elizabeth");
+  expect(entries[0]?.route).toBe("page /");
+  expect(entries[0]?.reqsPerSec).toBe(30000);
+  expect(entries[1]?.route).toBe("plain api /plain");
+});
+
 test("formatLiz trims trailing whitespace and normalizes line endings", () => {
   
   const input = "@default\r\n<Home>  \r\n  <main>hi</main>\r\n</Home>\r\n";

@@ -14,6 +14,7 @@ build/
 TODO.md
 **/tmp*
 check
+blog-sqlite
 
 # dev 
 .vscode

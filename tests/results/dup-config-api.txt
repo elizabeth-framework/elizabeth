@@ -75,8 +75,8 @@
         <p class="route">Route <code>/api/hello</code> failed while rendering.</p>
       </header>
       <section class="message">Route conflict: GET /api/hello
-- page: /home/ubuntu/repos/elizabeth/tests/test-app/src/api/hello.ts
-- api: /home/ubuntu/repos/elizabeth/tests/test-app/src/another-api/hello.ts</section>
+- page: /home/shinapri/Documents/orgs/lizorigin/elizabeth/tests/test-app/src/api/hello.ts
+- api: /home/shinapri/Documents/orgs/lizorigin/elizabeth/tests/test-app/src/another-api/hello.ts</section>
       <section class="primary">
     <div class="label">First application frame</div>
     <div class="file">native:7:39</div>
@@ -91,6 +91,7 @@
   <script type="module">
 
 const hydrateElizabethAfterSwap = () => {};
+const cleanupElizabethBeforeSwap = () => {};
 let elizabethNavigationId = 0;
 let elizabethNavigationAbort = null;
 document.addEventListener("click", async (event) => {
@@ -144,6 +145,7 @@ document.addEventListener("click", async (event) => {
       }
       document.title = nextDocument.title;
       const fresh = pair.next.cloneNode(true);
+      cleanupElizabethBeforeSwap(pair.current);
       pair.current.replaceWith(fresh);
       history.pushState(null, "", nextUrl.href);
       hydrateElizabethAfterSwap(fresh);

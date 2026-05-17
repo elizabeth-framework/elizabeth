@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
-const AVAILABLE_TEMPLATES = ["default", "tailwind", "with-auth"] as const;
+const AVAILABLE_TEMPLATES = ["default", "tailwind"] as const;
 type TemplateName = (typeof AVAILABLE_TEMPLATES)[number];
 
 interface CreateOptions {
@@ -27,12 +27,6 @@ const TEMPLATE_EXTRAS: Record<TemplateName, TemplateExtras> = {
       "@tailwindcss/vite": "^4.2.4",
       tailwindcss: "^4.2.4",
     },
-  },
-  "with-auth": {
-    postInstallNotes: [
-      "1. Copy .env.example to .env and set SESSION_SECRET.",
-      "   bun -e \"console.log(crypto.getRandomValues(new Uint8Array(32)).reduce((a,b)=>a+b.toString(16).padStart(2,'0'),''))\"",
-    ],
   },
 };
 
@@ -244,7 +238,5 @@ Options:
 Templates:
   default     Minimal starter with scoped styles and a client island counter.
   tailwind    Same starter wired up with Tailwind CSS v4 via @tailwindcss/vite.
-  with-auth   Signup / login / logout flow using HMAC-signed cookie sessions
-              and scrypt password hashing (everything inlined, no extra deps).
 `);
 }

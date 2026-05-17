@@ -1,11 +1,16 @@
 import { pathToFileURL } from "node:url";
 import { isNotFoundResult, isRedirectResult, type NotFoundResult, type RedirectResult } from "../route.ts";
+import type { ElizabethRequestContext } from "./middleware.ts";
 import type { PageRouteMatch } from "./pages.ts";
 
 export type RenderRouteResult = string | RedirectResult | NotFoundResult;
 export interface RenderPageContext {
   params: Record<string, string>;
   error?: unknown;
+  locals: Record<string, unknown>;
+  request?: Request;
+  pathname?: string;
+  readonly url?: URL;
 }
 type RenderModule = {
   default(props?: Record<string, unknown>, ctx?: RenderPageContext): Promise<RenderRouteResult> | RenderRouteResult;
@@ -15,13 +20,16 @@ export type RenderModuleCache = Map<string, Promise<RenderModule>>;
 
 export interface RenderPageRouteOptions {
   moduleCache?: RenderModuleCache;
+  context?: ElizabethRequestContext;
 }
 
 export async function renderPageRoute(
   match: PageRouteMatch,
   options: RenderPageRouteOptions = {},
 ): Promise<RenderRouteResult> {
-  const ctx = { params: match.params, error: match.error };
+  const ctx = options.context
+    ? { ...options.context, params: match.params, error: match.error }
+    : { params: match.params, error: match.error, locals: {} };
   const page = await importRenderModule(match.route.outputPath, options.moduleCache);
   let html = await page.default({}, ctx);
 

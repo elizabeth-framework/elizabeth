@@ -23,6 +23,10 @@ export interface CompileEndpointFileResult {
   methods: string[];
 }
 
+export interface CompileMiddlewareFileResult {
+  outputPath: string;
+}
+
 export interface ClientManifestEntry extends ClientComponent {
   sourcePath: string;
   outputPath: string;
@@ -192,10 +196,13 @@ export async function compileElizabethEndpointFile(
   const extension = normalizedInput.split(".").at(-1);
 
   if (extension === "ts" || extension === "js") {
-    const outputPath = endpointOutputPathFor(normalizedInput, root, outDir);
     const source = await Bun.file(normalizedInput).text();
+    const outputContent = rewriteServerModuleImports(source, root, normalizedInput, endpointOutputPathFor(normalizedInput, root, outDir), frameworkRoot);
+    const outputBasePath = endpointOutputPathFor(normalizedInput, root, outDir);
+    const outputPath = resolve(outDir, `${relative(root, normalizedInput)}.${hashString(outputContent)}.ts`);
     await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, rewriteServerModuleImports(source, root, normalizedInput, outputPath, frameworkRoot));
+    await writeFile(outputPath, outputContent);
+    await cleanupGeneratedModuleVariants(outputPath, outputBasePath);
     return {
       outputPath,
       methods: findEndpointMethodExports(source),
@@ -236,6 +243,26 @@ export async function compileElizabethEndpointFile(
   };
 }
 
+export async function compileMiddlewareFile(
+  inputPath: string,
+  options: CompileFileOptions,
+): Promise<CompileMiddlewareFileResult> {
+  const normalizedInput = resolve(inputPath);
+  const root = resolve(options.root);
+  const frameworkRoot = resolve(options.frameworkRoot ?? root);
+  const outDir = resolve(options.outDir);
+  const source = await Bun.file(normalizedInput).text();
+  const outputBasePath = endpointOutputPathFor(normalizedInput, root, outDir);
+  const outputContent = rewriteServerModuleImports(source, root, normalizedInput, outputBasePath, frameworkRoot);
+  const outputPath = resolve(outDir, `${relative(root, normalizedInput)}.${hashString(outputContent)}.ts`);
+
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, outputContent);
+  await cleanupGeneratedModuleVariants(outputPath, outputBasePath);
+
+  return { outputPath };
+}
+
 async function writeClientModule(
   sourcePath: string,
   root: string,
@@ -255,6 +282,7 @@ async function writeClientModule(
   };`;
         })
         .join("\n");
+      const readyCallbacks = component.ready.map((hook) => hook.callback).join(",\n    ");
       const clientFunctions = component.clientFunctions.map((fn) => indent(fn.source, 2)).join("\n");
       const staticTextUpdates = component.textBindings
         .filter((binding) => !binding.reactive)
@@ -291,7 +319,25 @@ async function writeClientModule(
         .join("\n");
 
       return `export function ${hydrateName}(root) {
+  root.__elizabethCleanup?.();
   root.setAttribute("data-elizabeth-hydrated", ${JSON.stringify(component.name)});
+  const __elizabethCleanups = [];
+  let __elizabethActive = true;
+  const __elizabethCleanup = () => {
+    __elizabethActive = false;
+    while (__elizabethCleanups.length > 0) {
+      const cleanup = __elizabethCleanups.pop();
+      try {
+        cleanup?.();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    if (root.__elizabethCleanup === __elizabethCleanup) {
+      root.__elizabethCleanup = undefined;
+    }
+  };
+  root.__elizabethCleanup = __elizabethCleanup;
 ${stateDeclarations}
 ${clientFunctions}
   const escapeHtml = (value) => value === null || value === undefined || value === false
@@ -312,6 +358,20 @@ ${attrUpdates}
 ${listeners}
   renderStatic();
   render();
+  queueMicrotask(() => {
+    if (!__elizabethActive || !root.isConnected) {
+      return;
+    }
+    for (const callback of [
+    ${readyCallbacks}
+    ]) {
+      const cleanup = callback();
+      if (typeof cleanup === "function") {
+        __elizabethCleanups.push(cleanup);
+      }
+    }
+  });
+  return __elizabethCleanup;
 }
 
 globalThis.__elizabethRegisterIsland?.(${JSON.stringify(component.name)}, ${hydrateName});`;
@@ -350,9 +410,18 @@ function emitClientAttributeUpdate(binding: ClientComponent["attrBindings"][numb
 
 function emitClientHtmlUpdate(binding: ClientComponent["htmlBindings"][number]): string {
   const selector = JSON.stringify(`[data-elizabeth-html="${binding.id}"]`);
+  const eventAttachments = binding.events
+    .map((event) => {
+      const eventSelector = JSON.stringify(`[data-elizabeth-event-${event.eventName}="${event.id}"]`);
+      return `        element.querySelector(${eventSelector})?.addEventListener(${JSON.stringify(event.eventName)}, (event) => (${event.handler})(event));`;
+    })
+    .join("\n");
+  const eventBlock = eventAttachments ? `\n${eventAttachments}` : "";
   return `    {
       const element = root.querySelector(${selector});
-      if (element) element.innerHTML = ${binding.expression};
+      if (element) {
+        element.innerHTML = ${binding.expression};${eventBlock}
+      }
     }`;
 }
 

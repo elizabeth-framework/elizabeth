@@ -11,6 +11,7 @@ export interface ClientComponent {
   clientFunctions: ClientFunction[];
   events: ClientEvent[];
   states: ClientStateBinding[];
+  ready: ClientReadyHook[];
   textBindings: ClientTextBinding[];
   htmlBindings: ClientHtmlBinding[];
   attrBindings: ClientAttributeBinding[];
@@ -33,6 +34,10 @@ export interface ClientStateBinding {
   initialValue: string;
 }
 
+export interface ClientReadyHook {
+  callback: string;
+}
+
 export interface ClientTextBinding {
   id: number;
   expression: string;
@@ -44,6 +49,7 @@ export interface ClientHtmlBinding {
   source: string;
   expression: string;
   reactive: boolean;
+  events: ClientEvent[];
 }
 
 export interface ClientAttributeBinding {

@@ -14,6 +14,12 @@ import {
 } from "../css/global.ts";
 import { isNotFoundResult, isRedirectResult } from "../route.ts";
 import { type ApiRoute, buildApiRoutes, describeApiRouteBuildError, matchApiRoute } from "../router/api.ts";
+import {
+  type ElizabethMiddleware,
+  type ElizabethRequestContext,
+  type MiddlewareReference,
+  runMiddleware,
+} from "../router/middleware.ts";
 import type { PageRouteManifest } from "../router/pages.ts";
 import { buildPageRoutes, matchPageRoute, matchSpecialPageRoute } from "../router/pages.ts";
 import { type RenderModuleCache, renderPageRoute } from "../router/render.ts";
@@ -65,6 +71,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
   let apiCompileContext: CompileGraphContext = createCompileGraphContext();
   const renderModuleCache: RenderModuleCache = new Map();
   const apiModuleCache = new Map<string, Promise<Record<string, unknown>>>();
+  const middlewareModuleCache = new Map<string, Promise<Record<string, unknown>>>();
   const projectContextPromise = createProjectContext(root);
   const hmr = createHmrRuntime({
     root,
@@ -177,10 +184,12 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
       return devResult(await renderViteInternalModule(pathname), "asset");
     }
 
+    let config: ElizabethConfig;
     let manifest: PageRouteManifest;
     let apiRoutes: ApiRoute[];
 
     try {
+      config = await getConfig();
       manifest = await getManifest();
       apiRoutes = await getApiRoutes();
       ensureNoRouteConflicts(manifest, apiRoutes);
@@ -189,7 +198,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     }
 
     if (request.headers.get("x-elizabeth-loading") === "1") {
-      return devResult(await renderLoading(manifest, pathname), "page");
+      return devResult(await renderLoading(manifest, pathname, request, config), "page");
     }
 
     if (pathname.startsWith("/_elizabeth/css/")) {
@@ -202,7 +211,15 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
       return devResult(apiRouteBuildFailureResponse(apiMatch.route), "api");
     }
     if (apiMatch && apiMatch.route.methods.includes(method)) {
-      return devResult(await renderApiRoute(apiMatch, method, request, apiModuleCache), "api");
+      const context = createRequestContext(request, pathname, apiMatch.params);
+      const middleware = await resolveMiddleware(config, apiMatch.route.middleware);
+
+      return devResult(
+        await runMiddleware(middleware, context, () =>
+          renderApiRoute(apiMatch, method, request, apiModuleCache, context),
+        ),
+        "api",
+      );
     }
 
     if (apiMatch && !["GET", "HEAD"].includes(method)) {
@@ -212,40 +229,44 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     const match = matchPageRoute(manifest.routes, pathname);
 
     if (!match) {
-      return devResult(await renderNotFound(manifest, pathname), "page");
+      return devResult(await renderNotFound(manifest, pathname, request, config), "page");
     }
 
-    let result: Awaited<ReturnType<typeof renderPageRoute>>;
+    const context = createRequestContext(request, pathname, match.params);
+    const middleware = await resolveMiddleware(config, match.route.middleware);
 
-    try {
-      result = await renderPageRoute(match, { moduleCache: renderModuleCache });
-    } catch (error) {
-      return devResult(await renderError(manifest, pathname, error), "error");
-    }
+    return devResult(await runMiddleware(middleware, context, async () => {
+      let result: Awaited<ReturnType<typeof renderPageRoute>>;
 
-    if (isRedirectResult(result)) {
-      return devResult(redirectResponse(result.location, result.status), "page");
-    }
+      try {
+        result = await renderPageRoute(match, { moduleCache: renderModuleCache, context });
+      } catch (error) {
+        return await renderError(manifest, pathname, error, request, config);
+      }
 
-    if (isNotFoundResult(result)) {
-      return devResult(await renderNotFound(manifest, pathname), "page");
-    }
+      if (isRedirectResult(result)) {
+        return redirectResponse(result.location, result.status);
+      }
 
-    const html = withCssLinks(result, [
-      ...(await getGlobalCssHrefs()),
-      ...manifest.cssModules.map((module) => module.href),
-    ]);
-    const hmrRefresh = request.headers.get("x-elizabeth-hmr") === "1";
+      if (isNotFoundResult(result)) {
+        return await renderNotFound(manifest, pathname, request, config);
+      }
 
-    return devResult(
-      htmlResponse(hmrRefresh ? html : withDevBootstrap(html, manifest.clientComponents.length > 0)),
-      "page",
-    );
+      const html = withCssLinks(result, [
+        ...(await getGlobalCssHrefs()),
+        ...manifest.cssModules.map((module) => module.href),
+      ]);
+      const hmrRefresh = request.headers.get("x-elizabeth-hmr") === "1";
+
+      return htmlResponse(hmrRefresh ? html : withDevBootstrap(html, manifest.clientComponents.length > 0));
+    }), "page");
   }
 
   async function renderNotFound(
     manifest: Awaited<ReturnType<typeof buildPageRoutes>>,
     pathname: string,
+    request?: Request,
+    config?: ElizabethConfig,
   ): Promise<Response> {
     const match = matchSpecialPageRoute(manifest.notFoundRoutes, pathname);
 
@@ -258,28 +279,39 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
       });
     }
 
-    const result = await renderPageRoute(match, { moduleCache: renderModuleCache });
+    const context = request ? createRequestContext(request, pathname, match.params) : undefined;
+    const render = async () => {
+      const result = await renderPageRoute(match, { moduleCache: renderModuleCache, context });
 
-    if (isRedirectResult(result)) {
-      return redirectResponse(result.location, result.status);
+      if (isRedirectResult(result)) {
+        return redirectResponse(result.location, result.status);
+      }
+
+      if (isNotFoundResult(result)) {
+        return htmlResponse("", 404);
+      }
+
+      const html = withCssLinks(result, [
+        ...(await getGlobalCssHrefs()),
+        ...(await getManifest()).cssModules.map((module) => module.href),
+      ]);
+
+      return htmlResponse(html, 404);
+    };
+
+    if (context && config) {
+      return await runMiddleware(await resolveMiddleware(config, match.route.middleware), context, render);
     }
 
-    if (isNotFoundResult(result)) {
-      return htmlResponse("", 404);
-    }
-
-    const html = withCssLinks(result, [
-      ...(await getGlobalCssHrefs()),
-      ...(await getManifest()).cssModules.map((module) => module.href),
-    ]);
-
-    return htmlResponse(html, 404);
+    return await render();
   }
 
   async function renderError(
     manifest: Awaited<ReturnType<typeof buildPageRoutes>>,
     pathname: string,
     error: unknown,
+    request?: Request,
+    config?: ElizabethConfig,
   ): Promise<Response> {
     const match = matchSpecialPageRoute(manifest.errorRoutes, pathname);
 
@@ -287,35 +319,46 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
       return devErrorResponse(error, pathname);
     }
 
-    const route = match.route;
-    const result = await renderPageRoute(
-      {
-        route,
-        params: match.params,
-        error,
-      },
-      { moduleCache: renderModuleCache },
-    );
+    const context = request ? createRequestContext(request, pathname, match.params, error) : undefined;
+    const render = async () => {
+      const route = match.route;
+      const result = await renderPageRoute(
+        {
+          route,
+          params: match.params,
+          error,
+        },
+        { moduleCache: renderModuleCache, context },
+      );
 
-    if (isRedirectResult(result)) {
-      return redirectResponse(result.location, result.status);
+      if (isRedirectResult(result)) {
+        return redirectResponse(result.location, result.status);
+      }
+
+      if (isNotFoundResult(result)) {
+        return await renderNotFound(manifest, pathname, request, config);
+      }
+
+      const html = withCssLinks(result, [
+        ...(await getGlobalCssHrefs()),
+        ...(await getManifest()).cssModules.map((module) => module.href),
+      ]);
+
+      return htmlResponse(withDevBootstrap(html, manifest.clientComponents.length > 0), 500);
+    };
+
+    if (context && config) {
+      return await runMiddleware(await resolveMiddleware(config, match.route.middleware), context, render);
     }
 
-    if (isNotFoundResult(result)) {
-      return await renderNotFound(manifest, pathname);
-    }
-
-    const html = withCssLinks(result, [
-      ...(await getGlobalCssHrefs()),
-      ...(await getManifest()).cssModules.map((module) => module.href),
-    ]);
-
-    return htmlResponse(withDevBootstrap(html, manifest.clientComponents.length > 0), 500);
+    return await render();
   }
 
   async function renderLoading(
     manifest: Awaited<ReturnType<typeof buildPageRoutes>>,
     pathname: string,
+    request?: Request,
+    config?: ElizabethConfig,
   ): Promise<Response> {
     const match = matchSpecialPageRoute(manifest.loadingRoutes, pathname);
 
@@ -323,22 +366,92 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
       return new Response(null, { status: 204 });
     }
 
-    const result = await renderPageRoute(match, { moduleCache: renderModuleCache });
+    const context = request ? createRequestContext(request, pathname, match.params) : undefined;
+    const render = async () => {
+      const result = await renderPageRoute(match, { moduleCache: renderModuleCache, context });
 
-    if (isRedirectResult(result)) {
-      return redirectResponse(result.location, result.status);
+      if (isRedirectResult(result)) {
+        return redirectResponse(result.location, result.status);
+      }
+
+      if (isNotFoundResult(result)) {
+        return new Response(null, { status: 204 });
+      }
+
+      const html = withCssLinks(result, [
+        ...(await getGlobalCssHrefs()),
+        ...(await getManifest()).cssModules.map((module) => module.href),
+      ]);
+
+      return htmlResponse(withDevBootstrap(html, manifest.clientComponents.length > 0));
+    };
+
+    if (context && config) {
+      return await runMiddleware(await resolveMiddleware(config, match.route.middleware), context, render);
     }
 
-    if (isNotFoundResult(result)) {
-      return new Response(null, { status: 204 });
+    return await render();
+  }
+
+  function createRequestContext(
+    request: Request,
+    pathname: string,
+    params: Record<string, string>,
+    error?: unknown,
+  ): ElizabethRequestContext {
+    return {
+      request,
+      pathname,
+      params,
+      locals: {},
+      error,
+      get url() {
+        return new URL(request.url);
+      },
+    };
+  }
+
+  async function resolveMiddleware(
+    config: ElizabethConfig,
+    references: MiddlewareReference[],
+  ): Promise<ElizabethMiddleware[]> {
+    const globalReferences: MiddlewareReference[] = Array.from(
+      { length: config.globalMiddlewareCount },
+      (_value, index) => ({ kind: "config", index }),
+    );
+    const middleware: ElizabethMiddleware[] = [];
+
+    for (const reference of [...globalReferences, ...references]) {
+      if (reference.kind === "config") {
+        const entry = config.middleware[reference.index];
+        if (entry) {
+          middleware.push(entry);
+        }
+        continue;
+      }
+
+      const module = await importMiddlewareModule(reference.outputPath);
+      const entry = module.default ?? module.middleware;
+
+      if (typeof entry !== "function") {
+        throw new Error(`Middleware module must export a default function or named middleware: ${reference.sourcePath}`);
+      }
+
+      middleware.push(entry as ElizabethMiddleware);
     }
 
-    const html = withCssLinks(result, [
-      ...(await getGlobalCssHrefs()),
-      ...(await getManifest()).cssModules.map((module) => module.href),
-    ]);
+    return middleware;
+  }
 
-    return htmlResponse(withDevBootstrap(html, manifest.clientComponents.length > 0));
+  async function importMiddlewareModule(path: string): Promise<Record<string, unknown>> {
+    let pending = middlewareModuleCache.get(path);
+
+    if (!pending) {
+      pending = import(`${pathToFileURL(path).href}?t=${Date.now()}`) as Promise<Record<string, unknown>>;
+      middlewareModuleCache.set(path, pending);
+    }
+
+    return await pending;
   }
 
   function devResult(response: Response, kind: DevRouteKind): DevRenderResult {
@@ -357,7 +470,9 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
       cachedManifest = await buildPageRoutes({
         root,
         frameworkRoot,
-        pageRoots: options.pagesDir ? [{ dir: pagesDir, basePath: "/" }] : config.pageRoutes,
+        pageRoots: options.pagesDir
+          ? [{ dir: pagesDir, basePath: "/", middleware: [], middlewareStart: config.middleware.length }]
+          : config.pageRoutes,
         outDir,
         cache: project.cache,
         context: pageCompileContext,
@@ -429,7 +544,9 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     }
 
     const config = await getConfig();
-    const pageRoots = options.pagesDir ? [{ dir: pagesDir, basePath: "/" }] : config.pageRoutes;
+    const pageRoots = options.pagesDir
+      ? [{ dir: pagesDir, basePath: "/", middleware: [], middlewareStart: config.middleware.length }]
+      : config.pageRoutes;
     const inPageRoot = pageRoots.some((routeRoot) => isInsideDir(normalizedPath, routeRoot.dir));
     const inApiRoot = config.apiRoutes.some((routeRoot) => isInsideDir(normalizedPath, routeRoot.dir));
 
@@ -451,6 +568,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     routeConflictChecked = false;
     pageCompileContext = createCompileGraphContext();
     renderModuleCache.clear();
+    middlewareModuleCache.clear();
   }
 
   function invalidateApiRoutes(): void {
@@ -458,6 +576,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     routeConflictChecked = false;
     apiCompileContext = createCompileGraphContext();
     apiModuleCache.clear();
+    middlewareModuleCache.clear();
   }
 
   function isInsideProjectSrc(path: string): boolean {
@@ -606,6 +725,7 @@ async function renderApiRoute(
   method: string,
   request: Request,
   moduleCache?: Map<string, Promise<Record<string, unknown>>>,
+  context?: ElizabethRequestContext,
 ): Promise<Response> {
   if (match.route.error) {
     return apiRouteBuildFailureResponse(match.route);
@@ -615,7 +735,7 @@ async function renderApiRoute(
   let pending = moduleCache?.get(modulePath);
 
   if (!pending) {
-    pending = import(pathToFileURL(modulePath).href) as Promise<Record<string, unknown>>;
+    pending = import(`${pathToFileURL(modulePath).href}?t=${Date.now()}`) as Promise<Record<string, unknown>>;
     moduleCache?.set(modulePath, pending);
   }
 
@@ -626,16 +746,17 @@ async function renderApiRoute(
     return methodNotAllowedResponse(match.route.methods);
   }
 
-  const context = {
-    request,
-    params: match.params,
-    locals: {},
-    get url() {
-      return new URL(request.url);
+  const result = await handler(
+    context ?? {
+      request,
+      pathname: new URL(request.url).pathname,
+      params: match.params,
+      locals: {},
+      get url() {
+        return new URL(request.url);
+      },
     },
-  };
-
-  const result = await handler(context);
+  );
 
   if (result instanceof Response) {
     return result;
@@ -1062,12 +1183,21 @@ function hydrateElizabethIslands(root = document) {
     registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
   }
 }
+function cleanupElizabethIslands(root = document) {
+  for (const island of root.querySelectorAll("el-island[data-elizabeth-client]")) {
+    island.__elizabethCleanup?.();
+  }
+  if (root.matches?.("el-island[data-elizabeth-client]")) {
+    root.__elizabethCleanup?.();
+  }
+}
 hydrateElizabethIslands();
 `
     : "";
   const script = `<script type="module">
 ${islandScript}
 const hydrateElizabethAfterSwap = ${hasIslands ? "hydrateElizabethIslands" : "() => {}"};
+const cleanupElizabethBeforeSwap = ${hasIslands ? "cleanupElizabethIslands" : "() => {}"};
 let elizabethNavigationId = 0;
 let elizabethNavigationAbort = null;
 document.addEventListener("click", async (event) => {
@@ -1121,6 +1251,7 @@ document.addEventListener("click", async (event) => {
       }
       document.title = nextDocument.title;
       const fresh = pair.next.cloneNode(true);
+      cleanupElizabethBeforeSwap(pair.current);
       pair.current.replaceWith(fresh);
       history.pushState(null, "", nextUrl.href);
       hydrateElizabethAfterSwap(fresh);
@@ -1218,6 +1349,7 @@ hmr.onmessage = async (event) => {
       }
       for (const [index, node] of currentNodes.entries()) {
         const fresh = freshNodes[index].cloneNode(true);
+        cleanupElizabethBeforeSwap(node);
         node.replaceWith(fresh);
         registry.get(island.name)?.(fresh);
       }

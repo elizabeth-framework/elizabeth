@@ -1,8 +1,16 @@
-import { readdir } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { dirname, relative, resolve } from "node:path";
 import type { ProjectCache } from "../compiler/cache.ts";
-import { type CompileGraphContext, compileElizabethEndpointFile, createCompileGraphContext } from "../compiler/file.ts";
+import {
+  type CompileGraphContext,
+  compileElizabethEndpointFile,
+  compileMiddlewareFile,
+  createCompileGraphContext,
+} from "../compiler/file.ts";
 import type { RouteRoot } from "../config.ts";
+import type { MiddlewareReference } from "./middleware.ts";
+
+type BuildRouteRoot = RouteRoot | { dir: string; basePath: string };
 
 export interface ApiRoute {
   path: string;
@@ -12,6 +20,7 @@ export interface ApiRoute {
   outputPath: string | null;
   methods: string[];
   error: string | null;
+  middleware: MiddlewareReference[];
 }
 
 export interface ApiRouteMatch {
@@ -22,7 +31,7 @@ export interface ApiRouteMatch {
 export interface BuildApiRoutesOptions {
   root: string;
   frameworkRoot?: string;
-  apiRoots: RouteRoot[];
+  apiRoots: BuildRouteRoot[];
   outDir: string;
   cache?: ProjectCache;
   context?: CompileGraphContext;
@@ -38,7 +47,7 @@ export async function buildApiRoutes(options: BuildApiRoutesOptions): Promise<Ap
   const routes: ApiRoute[] = [];
   const context = options.context ?? createCompileGraphContext();
 
-  for (const apiRoot of options.apiRoots) {
+  for (const apiRoot of options.apiRoots.map(normalizeBuildRouteRoot)) {
     const sourcePaths = options.cache
       ? findApiFilesFromCache(options.cache, apiRoot.dir)
       : await findApiFiles(apiRoot.dir);
@@ -49,6 +58,7 @@ export async function buildApiRoutes(options: BuildApiRoutesOptions): Promise<Ap
 
     for (const sourcePath of sourcePaths) {
       const path = routePathFor(sourcePath, apiRoot.dir, apiRoot.basePath);
+      const middleware = await middlewareFor(sourcePath, apiRoot, options, context);
       try {
         const { outputPath, methods } = await compileElizabethEndpointFile(sourcePath, {
           root: options.root,
@@ -66,6 +76,7 @@ export async function buildApiRoutes(options: BuildApiRoutesOptions): Promise<Ap
           outputPath,
           methods,
           error: null,
+          middleware,
         });
       } catch (error) {
         const matcher = routeMatcherFor(path);
@@ -78,6 +89,7 @@ export async function buildApiRoutes(options: BuildApiRoutesOptions): Promise<Ap
           outputPath: null,
           methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
           error: error instanceof Error ? error.message : String(error),
+          middleware,
         });
       }
     }
@@ -118,7 +130,7 @@ async function findApiFiles(dir: string): Promise<string[]> {
       continue;
     }
 
-    if (entry.isFile() && /\.(?:liz|ts|js)$/.test(entry.name)) {
+    if (entry.isFile() && /\.(?:liz|ts|js)$/.test(entry.name) && !isMiddlewareFile(entry.name)) {
       files.push(path);
     }
   }
@@ -145,7 +157,7 @@ function findApiFilesFromCache(cache: ProjectCache, dir: string): string[] {
     }
 
     for (const file of meta.files) {
-      if (/\.(?:liz|ts|js)$/.test(file)) {
+      if (/\.(?:liz|ts|js)$/.test(file) && !isMiddlewareFile(file)) {
         files.push(file);
       }
     }
@@ -156,6 +168,94 @@ function findApiFilesFromCache(cache: ProjectCache, dir: string): string[] {
   }
 
   return files;
+}
+
+async function middlewareFor(
+  sourcePath: string,
+  routeRoot: RouteRoot,
+  options: BuildApiRoutesOptions,
+  context: CompileGraphContext,
+): Promise<MiddlewareReference[]> {
+  const references: MiddlewareReference[] = routeRoot.middleware.map((_entry, index) => ({
+    kind: "config",
+    index: routeRoot.middlewareStart + index,
+  }));
+  const files = await middlewareFilesFor(sourcePath, routeRoot.dir, options.cache);
+
+  for (const file of files) {
+    const { outputPath } = await compileMiddlewareFile(file, {
+      root: options.root,
+      frameworkRoot: options.frameworkRoot,
+      outDir: options.outDir,
+      context,
+    });
+
+    references.push({
+      kind: "module",
+      sourcePath: file,
+      outputPath,
+    });
+  }
+
+  return references;
+}
+
+async function middlewareFilesFor(
+  sourcePath: string,
+  rootDir: string,
+  cache?: ProjectCache,
+): Promise<string[]> {
+  const routeDir = dirname(sourcePath);
+  const relativeDir = relative(rootDir, routeDir).replaceAll("\\", "/");
+  const segments = relativeDir === "" ? [] : relativeDir.split("/");
+  const files: string[] = [];
+
+  for (let depth = 0; depth <= segments.length; depth++) {
+    const dir = resolve(rootDir, ...segments.slice(0, depth));
+    const file = await existingMiddlewareFile(dir, cache);
+
+    if (file) {
+      files.push(file);
+    }
+  }
+
+  return files;
+}
+
+async function existingMiddlewareFile(dir: string, cache?: ProjectCache): Promise<string | null> {
+  for (const name of ["middleware.ts", "middleware.js"]) {
+    const path = resolve(dir, name);
+
+    if (cache) {
+      const meta = cache.get(path);
+      if (meta?.isFile) {
+        return path;
+      }
+      continue;
+    }
+
+    try {
+      if ((await stat(path)).isFile()) {
+        return path;
+      }
+    } catch {
+      // Continue checking the next middleware filename.
+    }
+  }
+
+  return null;
+}
+
+function normalizeBuildRouteRoot(root: BuildRouteRoot): RouteRoot {
+  return {
+    ...root,
+    middleware: "middleware" in root ? root.middleware : [],
+    middlewareStart: "middlewareStart" in root ? root.middlewareStart : 0,
+  };
+}
+
+function isMiddlewareFile(path: string): boolean {
+  return /(?:^|\/|\\)middleware\.(?:ts|js)$/.test(path);
 }
 
 function routePathFor(filePath: string, rootDir: string, basePath: string): string {
