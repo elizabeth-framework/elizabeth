@@ -1,4 +1,21 @@
-export type IslandHydrator = (root: Element) => void;
+export type IslandCleanup = () => void;
+export type IslandHydrator = (root: Element) => void | IslandCleanup;
+
+export const ELIZABETH_CLIENT_HOOKS = {
+  state: {
+    names: ["clientState"],
+    memberName: "clientState",
+  },
+  ready: {
+    names: ["onReady"],
+    memberName: "onReady",
+  },
+} as const;
+
+export const ELIZABETH_CLIENT_STATE_HOOK_NAMES = new Set<string>(ELIZABETH_CLIENT_HOOKS.state.names);
+export const ELIZABETH_CLIENT_STATE_MEMBER_NAME = ELIZABETH_CLIENT_HOOKS.state.memberName;
+export const ELIZABETH_CLIENT_READY_HOOK_NAMES = new Set<string>(ELIZABETH_CLIENT_HOOKS.ready.names);
+export const ELIZABETH_CLIENT_READY_MEMBER_NAME = ELIZABETH_CLIENT_HOOKS.ready.memberName;
 
 const registry = new Map<string, IslandHydrator>();
 

@@ -39,7 +39,7 @@
       </style>
     </head>
     <body>
-      <elizabeth-route-boundary data-elizabeth-boundary="layout:1fi7gyt:" style="display: contents"><style data-elizabeth-style="HomePage_k76bsl">
+      <elizabeth-route-boundary data-elizabeth-boundary="layout:givrnf:" style="display: contents"><style data-elizabeth-style="HomePage_k76bsl">
     .container_k76bsl {
       display: flex;
       flex-direction: column;
@@ -189,9 +189,18 @@ function hydrateElizabethIslands(root = document) {
     registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
   }
 }
+function cleanupElizabethIslands(root = document) {
+  for (const island of root.querySelectorAll("el-island[data-elizabeth-client]")) {
+    island.__elizabethCleanup?.();
+  }
+  if (root.matches?.("el-island[data-elizabeth-client]")) {
+    root.__elizabethCleanup?.();
+  }
+}
 hydrateElizabethIslands();
 
 const hydrateElizabethAfterSwap = hydrateElizabethIslands;
+const cleanupElizabethBeforeSwap = cleanupElizabethIslands;
 let elizabethNavigationId = 0;
 let elizabethNavigationAbort = null;
 document.addEventListener("click", async (event) => {
@@ -245,6 +254,7 @@ document.addEventListener("click", async (event) => {
       }
       document.title = nextDocument.title;
       const fresh = pair.next.cloneNode(true);
+      cleanupElizabethBeforeSwap(pair.current);
       pair.current.replaceWith(fresh);
       history.pushState(null, "", nextUrl.href);
       hydrateElizabethAfterSwap(fresh);
@@ -340,6 +350,7 @@ hmr.onmessage = async (event) => {
       }
       for (const [index, node] of currentNodes.entries()) {
         const fresh = freshNodes[index].cloneNode(true);
+        cleanupElizabethBeforeSwap(node);
         node.replaceWith(fresh);
         registry.get(island.name)?.(fresh);
       }

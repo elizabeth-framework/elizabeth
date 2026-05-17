@@ -1,14 +1,18 @@
-import { readdir } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { dirname, relative, resolve } from "node:path";
 import type { ProjectCache } from "../compiler/cache.ts";
 import {
   type ClientManifestEntry,
   type CompileGraphContext,
   type CssModuleEntry,
+  compileMiddlewareFile,
   compileElizabethFile,
   createCompileGraphContext,
 } from "../compiler/file.ts";
 import type { RouteRoot } from "../config.ts";
+import type { MiddlewareReference } from "./middleware.ts";
+
+type BuildRouteRoot = RouteRoot | { dir: string; basePath: string };
 
 export interface PageRoute {
   path: string;
@@ -17,6 +21,7 @@ export interface PageRoute {
   sourcePath: string;
   outputPath: string;
   layouts: PageLayout[];
+  middleware: MiddlewareReference[];
 }
 
 export interface PageSpecialRoute extends PageRoute {
@@ -52,14 +57,16 @@ export interface BuildPageRoutesOptions {
   root: string;
   frameworkRoot?: string;
   pagesDir?: string;
-  pageRoots?: RouteRoot[];
+  pageRoots?: BuildRouteRoot[];
   outDir: string;
   cache?: ProjectCache;
   context?: CompileGraphContext;
 }
 
 export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<PageRouteManifest> {
-  const pageRoots = options.pageRoots ?? [{ dir: resolve(options.pagesDir!), basePath: "/" }];
+  const pageRoots = (options.pageRoots ?? [{ dir: resolve(options.pagesDir!), basePath: "/" }]).map(
+    normalizeBuildRouteRoot,
+  );
   const context = options.context ?? createCompileGraphContext();
   const routes: PageRoute[] = [];
   const notFoundRoutes: PageSpecialRoute[] = [];
@@ -85,6 +92,7 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
         context,
       });
       const layouts = await layoutFilesFor(sourcePath, pageRoot.dir, layoutFiles, options, context);
+      const middleware = await middlewareFor(sourcePath, pageRoot, options, context);
 
       const path = routePathFor(sourcePath, pageRoot.dir, pageRoot.basePath);
       const matcher = routeMatcherFor(path);
@@ -96,6 +104,7 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
         sourcePath,
         outputPath,
         layouts,
+        middleware,
       });
     }
 
@@ -108,9 +117,8 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
 
       const route = await buildSpecialRoute(
         sourcePath,
-        pageRoot.dir,
+        pageRoot,
         layoutFiles,
-        pageRoot.basePath,
         special,
         options,
         context,
@@ -159,6 +167,7 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
       context,
     });
     const layouts = await layoutFilesFor(sourcePath, pagesDir, layoutFiles, options, context);
+    const middleware = await middlewareFor(sourcePath, { dir: pagesDir, basePath, middleware: [], middlewareStart: 0 }, options, context);
 
     const path = routePathFor(sourcePath, pagesDir, basePath);
     const matcher = routeMatcherFor(path);
@@ -170,14 +179,14 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
       sourcePath,
       outputPath,
       layouts,
+      middleware,
     };
   }
 
   async function buildSpecialRoute(
     sourcePath: string,
-    pagesDir: string,
+    pageRoot: RouteRoot,
     layoutFiles: Set<string>,
-    basePath: string,
     special: PageSpecialRoute["special"],
     options: BuildPageRoutesOptions,
     context: CompileGraphContext,
@@ -188,8 +197,9 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
       outDir: options.outDir,
       context,
     });
-    const layouts = await layoutFilesFor(sourcePath, pagesDir, layoutFiles, options, context);
-    const prefix = specialRoutePrefixFor(sourcePath, pagesDir, basePath);
+    const layouts = await layoutFilesFor(sourcePath, pageRoot.dir, layoutFiles, options, context);
+    const middleware = await middlewareFor(sourcePath, pageRoot, options, context);
+    const prefix = specialRoutePrefixFor(sourcePath, pageRoot.dir, pageRoot.basePath);
     const matcher = specialRouteMatcherFor(prefix);
 
     return {
@@ -199,6 +209,7 @@ export async function buildPageRoutes(options: BuildPageRoutesOptions): Promise<
       sourcePath,
       outputPath,
       layouts,
+      middleware,
       special,
       prefix,
       depth: routeDepth(prefix),
@@ -278,6 +289,90 @@ async function layoutFilesFor(
   }
 
   return layouts;
+}
+
+async function middlewareFor(
+  sourcePath: string,
+  routeRoot: RouteRoot,
+  options: BuildPageRoutesOptions,
+  context: CompileGraphContext,
+): Promise<MiddlewareReference[]> {
+  const references: MiddlewareReference[] = routeRoot.middleware.map((_entry, index) => ({
+    kind: "config",
+    index: routeRoot.middlewareStart + index,
+  }));
+  const files = await middlewareFilesFor(sourcePath, routeRoot.dir, options.cache);
+
+  for (const file of files) {
+    const { outputPath } = await compileMiddlewareFile(file, {
+      root: options.root,
+      frameworkRoot: options.frameworkRoot,
+      outDir: options.outDir,
+      context,
+    });
+
+    references.push({
+      kind: "module",
+      sourcePath: file,
+      outputPath,
+    });
+  }
+
+  return references;
+}
+
+async function middlewareFilesFor(
+  sourcePath: string,
+  rootDir: string,
+  cache?: ProjectCache,
+): Promise<string[]> {
+  const routeDir = dirname(sourcePath);
+  const relativeDir = relative(rootDir, routeDir).replaceAll("\\", "/");
+  const segments = relativeDir === "" ? [] : relativeDir.split("/");
+  const files: string[] = [];
+
+  for (let depth = 0; depth <= segments.length; depth++) {
+    const dir = resolve(rootDir, ...segments.slice(0, depth));
+    const file = await existingMiddlewareFile(dir, cache);
+
+    if (file) {
+      files.push(file);
+    }
+  }
+
+  return files;
+}
+
+async function existingMiddlewareFile(dir: string, cache?: ProjectCache): Promise<string | null> {
+  for (const name of ["middleware.ts", "middleware.js"]) {
+    const path = resolve(dir, name);
+
+    if (cache) {
+      const meta = cache.get(path);
+      if (meta?.isFile) {
+        return path;
+      }
+      continue;
+    }
+
+    try {
+      if ((await stat(path)).isFile()) {
+        return path;
+      }
+    } catch {
+      // Continue checking the next middleware filename.
+    }
+  }
+
+  return null;
+}
+
+function normalizeBuildRouteRoot(root: BuildRouteRoot): RouteRoot {
+  return {
+    ...root,
+    middleware: "middleware" in root ? root.middleware : [],
+    middlewareStart: "middlewareStart" in root ? root.middlewareStart : 0,
+  };
 }
 
 async function findLizFiles(dir: string): Promise<string[]> {

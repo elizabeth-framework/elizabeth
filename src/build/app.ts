@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { formatCompileError } from "../compiler/errors.ts";
 import { buildGlobalCssWithVite, defaultTailwindPlugins, findViteConfig, importVite } from "../css/global.ts";
 import { loadElizabethConfig } from "../config.ts";
@@ -37,7 +38,9 @@ export async function buildElizabethApp(options: ElizabethBuildOptions): Promise
   const manifest = await buildPageRoutes({
     root,
     frameworkRoot,
-    pageRoots: options.pagesDir ? [{ dir: pagesDir, basePath: "/" }] : config.pageRoutes,
+    pageRoots: options.pagesDir
+      ? [{ dir: pagesDir, basePath: "/", middleware: [], middlewareStart: config.middleware.length }]
+      : config.pageRoutes,
     outDir,
   });
   const apiRoutes = await buildApiRoutes({
@@ -78,9 +81,11 @@ export async function buildElizabethApp(options: ElizabethBuildOptions): Promise
     })),
   });
   await writeServerEntry(distDir, manifest, apiRoutes, {
+    root,
     globalCssHrefs,
     cssModuleHrefs: manifest.cssModules.map((module) => module.href),
     hasIslands: manifest.clientComponents.length > 0,
+    globalMiddlewareCount: config.globalMiddlewareCount,
   });
 
   for (const route of manifest.routes) {
@@ -201,7 +206,13 @@ async function writeServerEntry(
   distDir: string,
   manifest: PageRouteManifest,
   apiRoutes: ApiRoute[],
-  options: { globalCssHrefs: string[]; cssModuleHrefs: string[]; hasIslands: boolean },
+  options: {
+    root: string;
+    globalCssHrefs: string[];
+    cssModuleHrefs: string[];
+    hasIslands: boolean;
+    globalMiddlewareCount: number;
+  },
 ): Promise<void> {
   const serverRoutes = manifest.routes.map((route) => serializeServerRoute(route, distDir));
   const serverApiRoutes = apiRoutes.map((route) => serializeServerApiRoute(route, distDir));
@@ -211,7 +222,7 @@ async function writeServerEntry(
   const code = `#!/usr/bin/env bun
 import { stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const distDir = dirname(fileURLToPath(import.meta.url));
 const routes = ${JSON.stringify(serverRoutes, null, 2)};
@@ -221,6 +232,8 @@ const errorRoutes = ${JSON.stringify(errorRoutes, null, 2)};
 const loadingRoutes = ${JSON.stringify(loadingRoutes, null, 2)};
 const cssHrefs = ${JSON.stringify([...options.globalCssHrefs, ...options.cssModuleHrefs])};
 const hasIslands = ${JSON.stringify(options.hasIslands)};
+const configUrl = ${JSON.stringify(pathToFileURL(resolve(options.root, "elizabeth.config.ts")).href)};
+const globalMiddlewareCount = ${JSON.stringify(options.globalMiddlewareCount)};
 const redirectMarker = Symbol.for("elizabeth.redirect");
 const notFoundMarker = Symbol.for("elizabeth.notFound");
 const EMPTY_PARAMS = {};
@@ -236,6 +249,8 @@ const staticHtmlCache = new Map();
 const cssLinkMarkup = renderCssLinks(cssHrefs);
 const buildBootstrapScript = renderBuildBootstrap(hasIslands);
 const requestLoggingEnabled = Bun.env.ELIZABETH_REQUEST_LOGS !== "0";
+const userConfig = await import(configUrl).then((module) => module.default ?? {}).catch(() => ({}));
+const configMiddleware = collectConfigMiddleware(userConfig);
 
 await preloadServerModules();
 await preloadStaticHtml();
@@ -257,13 +272,13 @@ Bun.serve({
             logCompletedRequest(request, pathname, resolved, startedAt);
             return resolved;
           })
-          .catch((error) => internalErrorResponse(error, pathname));
+          .catch((error) => internalErrorResponse(error, pathname, request));
       }
 
       logCompletedRequest(request, pathname, response, startedAt);
       return response;
     } catch (error) {
-      return internalErrorResponse(error, pathname);
+      return internalErrorResponse(error, pathname, request);
     }
   },
 });
@@ -286,9 +301,9 @@ function logCompletedRequest(request, pathname, response, startedAt) {
   }
 }
 
-function internalErrorResponse(error, pathname) {
+function internalErrorResponse(error, pathname, request) {
   console.error(error);
-  return renderError(pathname, error);
+  return renderError(pathname, error, request);
 }
 
 function renderRequest(request, pathname) {
@@ -303,7 +318,7 @@ function renderRequest(request, pathname) {
     }
 
     if (request.headers.get("x-elizabeth-loading") === "1") {
-      return renderLoading(pathname);
+      return renderLoading(pathname, request);
     }
 
 const apiMatch = matchRoute(compiledApiRoutes, pathname, exactApiRoutes);
@@ -312,7 +327,8 @@ const apiMatch = matchRoute(compiledApiRoutes, pathname, exactApiRoutes);
     }
 
     if (apiMatch && apiMatch.route.methods.includes(method)) {
-      return renderApiRoute(apiMatch, request, method);
+      const context = createRequestContext(request, pathname, apiMatch.params);
+      return runMiddleware(resolveMiddleware(apiMatch.route.middleware), context, () => renderApiRoute(apiMatch, request, method, context));
     }
 
     if (apiMatch && !["GET", "HEAD"].includes(method)) {
@@ -321,14 +337,14 @@ const apiMatch = matchRoute(compiledApiRoutes, pathname, exactApiRoutes);
 
     const match = matchRoute(compiledRoutes, pathname, exactRoutes);
     if (!match) {
-      return renderNotFound(pathname);
+      return renderNotFound(pathname, request);
     }
 
-    return renderMatchedRoute(match, 200, pathname);
+    return renderMatchedRoute(match, 200, pathname, request);
 }
 
-function renderMatchedRoute(match, status, pathname) {
-  if (status === 200 && match.route.static) {
+function renderMatchedRoute(match, status, pathname, request) {
+  if (status === 200 && match.route.static && !hasMiddleware(match.route)) {
     const cached = staticHtmlCache.get(match.route.path);
 
     if (cached) {
@@ -336,24 +352,29 @@ function renderMatchedRoute(match, status, pathname) {
     }
   }
 
+  const context = createRequestContext(request, pathname, match.params, match.error);
+  return runMiddleware(resolveMiddleware(match.route.middleware), context, () => renderMatchedRouteWithoutMiddleware(match, status, pathname, context));
+}
+
+function renderMatchedRouteWithoutMiddleware(match, status, pathname, context) {
   let result;
 
   try {
-    result = renderRoute(match);
+    result = renderRoute(match, context);
   } catch (error) {
-    return renderError(pathname, error);
+    return renderError(pathname, error, context.request);
   }
 
   if (result instanceof Promise) {
     return result
-      .then((resolved) => renderRouteResult(resolved, status, pathname))
-      .catch((error) => renderError(pathname, error));
+      .then((resolved) => renderRouteResult(resolved, status, pathname, context))
+      .catch((error) => renderError(pathname, error, context.request));
   }
 
-  return renderRouteResult(result, status, pathname);
+  return renderRouteResult(result, status, pathname, context);
 }
 
-function renderRouteResult(result, status, pathname) {
+function renderRouteResult(result, status, pathname, context) {
   if (isRedirectResult(result)) {
     return new Response(null, {
       status: result.status,
@@ -362,13 +383,13 @@ function renderRouteResult(result, status, pathname) {
   }
 
   if (isNotFoundResult(result)) {
-    return renderNotFound(pathname);
+    return renderNotFound(pathname, context.request);
   }
 
   return htmlResponse(withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), status);
 }
 
-function renderApiRoute(match, request, method) {
+function renderApiRoute(match, request, method, context = createRequestContext(request, new URL(request.url).pathname, match.params)) {
   if (match.route.error) {
     return apiRouteBuildFailureResponse(match.route);
   }
@@ -385,13 +406,6 @@ function renderApiRoute(match, request, method) {
   if (typeof handler !== "function") {
     return methodNotAllowedResponse(match.route.methods);
   }
-
-  const context = {
-    request,
-    params: match.params,
-    locals: {},
-    get url() { return new URL(request.url); }
-  };
 
   const result = handler(context);
 
@@ -415,7 +429,7 @@ function apiRouteResultResponse(result, pathname) {
   }
 
   if (isNotFoundResult(result)) {
-    return renderNotFound(pathname);
+    return renderNotFound(pathname, context.request);
   }
 
   if (typeof result === "string") {
@@ -444,7 +458,7 @@ function methodNotAllowedResponse(methods) {
   });
 }
 
-function renderNotFound(pathname) {
+function renderNotFound(pathname, request) {
   const match = matchSpecialRoute(compiledNotFoundRoutes, pathname);
 
   if (!match) {
@@ -454,16 +468,19 @@ function renderNotFound(pathname) {
     });
   }
 
-  const result = renderRoute(match);
+  const context = request ? createRequestContext(request, pathname, match.params) : null;
+  return runMaybeMiddleware(match.route, context, () => {
+    const result = renderRoute(match, context);
 
-  if (result instanceof Promise) {
-    return result.then((resolved) => renderNotFoundResult(resolved));
-  }
+    if (result instanceof Promise) {
+      return result.then((resolved) => renderNotFoundResult(resolved));
+    }
 
-  return renderNotFoundResult(result);
+    return renderNotFoundResult(result);
+  });
 }
 
-function renderError(pathname, error) {
+function renderError(pathname, error, request) {
   const match = matchSpecialRoute(compiledErrorRoutes, pathname);
 
   if (!match) {
@@ -473,16 +490,19 @@ function renderError(pathname, error) {
     });
   }
 
-  const result = renderRoute({ ...match, error });
+  const context = request ? createRequestContext(request, pathname, match.params, error) : null;
+  return runMaybeMiddleware(match.route, context, () => {
+    const result = renderRoute({ ...match, error }, context);
 
-  if (result instanceof Promise) {
-    return result.then((resolved) => renderErrorResult(resolved, pathname));
-  }
+    if (result instanceof Promise) {
+      return result.then((resolved) => renderErrorResult(resolved, pathname, request));
+    }
 
-  return renderErrorResult(result, pathname);
+    return renderErrorResult(result, pathname, request);
+  });
 }
 
-function renderErrorResult(result, pathname) {
+function renderErrorResult(result, pathname, request) {
   if (isRedirectResult(result)) {
     return new Response(null, {
       status: result.status,
@@ -491,26 +511,29 @@ function renderErrorResult(result, pathname) {
   }
 
   if (isNotFoundResult(result)) {
-    return renderNotFound(pathname);
+    return renderNotFound(pathname, request);
   }
 
   return htmlResponse(withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), 500);
 }
 
-function renderLoading(pathname) {
+function renderLoading(pathname, request) {
   const match = matchSpecialRoute(compiledLoadingRoutes, pathname);
 
   if (!match) {
     return new Response(null, { status: 204 });
   }
 
-  const result = renderRoute(match);
+  const context = request ? createRequestContext(request, pathname, match.params) : null;
+  return runMaybeMiddleware(match.route, context, () => {
+    const result = renderRoute(match, context);
 
-  if (result instanceof Promise) {
-    return result.then(renderLoadingResult);
-  }
+    if (result instanceof Promise) {
+      return result.then(renderLoadingResult);
+    }
 
-  return renderLoadingResult(result);
+    return renderLoadingResult(result);
+  });
 }
 
 function renderLoadingResult(result) {
@@ -539,8 +562,106 @@ function renderNotFoundResult(result) {
   return htmlResponse(isNotFoundResult(result) ? "" : withBuildBootstrap(withCssLinks(result, cssHrefs), hasIslands), 404);
 }
 
-function renderRoute(match) {
-  const ctx = { params: match.params, error: match.error };
+function runMaybeMiddleware(route, context, handler) {
+  if (!context) {
+    return handler();
+  }
+
+  return runMiddleware(resolveMiddleware(route.middleware), context, handler);
+}
+
+async function runMiddleware(middleware, context, handler) {
+  let index = -1;
+
+  async function dispatch(nextIndex) {
+    if (nextIndex <= index) {
+      throw new Error("Middleware called next() more than once.");
+    }
+
+    index = nextIndex;
+    const current = middleware[nextIndex];
+
+    if (!current) {
+      return await handler();
+    }
+
+    return await current(context, () => dispatch(nextIndex + 1));
+  }
+
+  return await dispatch(0);
+}
+
+function resolveMiddleware(references = []) {
+  const middleware = [];
+
+  for (let index = 0; index < globalMiddlewareCount; index++) {
+    const entry = configMiddleware[index];
+    if (entry) middleware.push(entry);
+  }
+
+  for (const reference of references) {
+    if (reference.kind === "config") {
+      const entry = configMiddleware[reference.index];
+      if (entry) middleware.push(entry);
+      continue;
+    }
+
+    const module = getServerModule(reference.module);
+    const entry = module?.default ?? module?.middleware;
+
+    if (typeof entry !== "function") {
+      throw new Error("Middleware module must export a default function or named middleware: " + reference.sourcePath);
+    }
+
+    middleware.push(entry);
+  }
+
+  return middleware;
+}
+
+function hasMiddleware(route) {
+  return globalMiddlewareCount > 0 || route.middleware?.length > 0;
+}
+
+function createRequestContext(request, pathname, params, error) {
+  return {
+    request,
+    pathname,
+    params,
+    locals: {},
+    error,
+    get url() { return new URL(request.url); },
+  };
+}
+
+function collectConfigMiddleware(config) {
+  return [
+    ...middlewareArray(config.middleware),
+    ...routeRootMiddleware(config.pageRoutes),
+    ...routeRootMiddleware(config.apiRoutes),
+  ];
+}
+
+function routeRootMiddleware(value) {
+  if (!value || typeof value === "string" || Array.isArray(value)) {
+    return [];
+  }
+
+  return Object.values(value).flatMap((entry) => {
+    if (!entry || typeof entry === "string") {
+      return [];
+    }
+
+    return middlewareArray(entry.middleware);
+  });
+}
+
+function middlewareArray(value) {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === "function") : [];
+}
+
+function renderRoute(match, context) {
+  const ctx = context ?? { params: match.params, error: match.error, locals: {} };
   const page = getServerModule(match.route.module);
   const html = page.default({}, ctx);
 
@@ -612,6 +733,12 @@ async function preloadServerModules() {
     for (const layout of route.layouts ?? []) {
       specifiers.add(layout.module);
     }
+
+    for (const middleware of route.middleware ?? []) {
+      if (middleware.kind === "module") {
+        specifiers.add(middleware.module);
+      }
+    }
   }
 
   await Promise.all([...specifiers].map(async (specifier) => {
@@ -620,7 +747,7 @@ async function preloadServerModules() {
 }
 
 async function preloadStaticHtml() {
-  await Promise.all(compiledRoutes.filter((route) => route.static).map(async (route) => {
+  await Promise.all(compiledRoutes.filter((route) => route.static && !hasMiddleware(route)).map(async (route) => {
     let result;
 
     try {
@@ -800,12 +927,21 @@ function hydrateElizabethIslands(root = document) {
     registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
   }
 }
+function cleanupElizabethIslands(root = document) {
+  for (const island of root.querySelectorAll("el-island[data-elizabeth-client]")) {
+    island.__elizabethCleanup?.();
+  }
+  if (root.matches?.("el-island[data-elizabeth-client]")) {
+    root.__elizabethCleanup?.();
+  }
+}
 hydrateElizabethIslands();
 \` : "";
 
 const script = \`<script type="module">
 \${islandScript}
 const hydrateElizabethAfterSwap = \${enabled ? "hydrateElizabethIslands" : "() => {}"};
+const cleanupElizabethBeforeSwap = \${enabled ? "cleanupElizabethIslands" : "() => {}"};
 let elizabethNavigationId = 0;
 let elizabethNavigationAbort = null;
 document.addEventListener("click", async (event) => {
@@ -858,6 +994,7 @@ document.addEventListener("click", async (event) => {
       }
       document.title = nextDocument.title;
       const fresh = pair.next.cloneNode(true);
+      cleanupElizabethBeforeSwap(pair.current);
       pair.current.replaceWith(fresh);
       history.pushState(null, "", nextUrl.href);
       hydrateElizabethAfterSwap(fresh);
@@ -982,6 +1119,7 @@ function serializeServerRoute(route: PageRoute, distDir: string): object {
     paramNames: route.paramNames,
     sourcePath: route.sourcePath,
     module: toServerImportPath(route.outputPath, distDir),
+    middleware: route.middleware.map((entry) => serializeMiddlewareReference(entry, distDir)),
     layouts: route.layouts.map((layout) => ({
       sourcePath: layout.sourcePath,
       hash: hashString(layout.sourcePath),
@@ -998,6 +1136,22 @@ function serializeServerApiRoute(route: ApiRoute, distDir: string): object {
     methods: route.methods,
     module: route.outputPath ? toServerImportPath(route.outputPath, distDir) : null,
     error: route.error,
+    middleware: route.middleware.map((entry) => serializeMiddlewareReference(entry, distDir)),
+  };
+}
+
+function serializeMiddlewareReference(
+  reference: PageRoute["middleware"][number] | ApiRoute["middleware"][number],
+  distDir: string,
+): object {
+  if (reference.kind === "config") {
+    return reference;
+  }
+
+  return {
+    kind: "module",
+    sourcePath: reference.sourcePath,
+    module: toServerImportPath(reference.outputPath, distDir),
   };
 }
 
@@ -1081,12 +1235,21 @@ function hydrateElizabethIslands(root = document) {
     registry.get(island.getAttribute("data-elizabeth-client"))?.(island);
   }
 }
+function cleanupElizabethIslands(root = document) {
+  for (const island of root.querySelectorAll("el-island[data-elizabeth-client]")) {
+    island.__elizabethCleanup?.();
+  }
+  if (root.matches?.("el-island[data-elizabeth-client]")) {
+    root.__elizabethCleanup?.();
+  }
+}
 hydrateElizabethIslands();
 ` : "";
 
 const script = `<script type="module">
 ${islandScript}
 const hydrateElizabethAfterSwap = ${hasIslands ? "hydrateElizabethIslands" : "() => {}"};
+const cleanupElizabethBeforeSwap = ${hasIslands ? "cleanupElizabethIslands" : "() => {}"};
 let elizabethNavigationId = 0;
 let elizabethNavigationAbort = null;
 document.addEventListener("click", async (event) => {
@@ -1139,6 +1302,7 @@ document.addEventListener("click", async (event) => {
       }
       document.title = nextDocument.title;
       const fresh = pair.next.cloneNode(true);
+      cleanupElizabethBeforeSwap(pair.current);
       pair.current.replaceWith(fresh);
       history.pushState(null, "", nextUrl.href);
       hydrateElizabethAfterSwap(fresh);

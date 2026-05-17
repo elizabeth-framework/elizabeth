@@ -32,12 +32,14 @@ type ElizabethComponentProps = Record<string, any> & { children?: any };
 type ElizabethComponentContext = {
     params: Record<string, string>;
     error?: any;
-    locals?: Record<string, any>;
+    locals: Record<string, any>;
+    pathname?: string;
     request?: Request;
     url?: URL;
 };
 declare module "elizabeth/client" {
     export function clientState<T>(initialValue: T): [T, (value: T | ((current: T) => T)) => void];
+    export function onReady(callback: () => void | (() => void)): void;
 }
 declare module "elizabeth/route" {
     export type RedirectResult = any;
@@ -180,18 +182,14 @@ export {};
       generatedText += this.componentPropsStatement(match[0]);
 
       const body = processedText.substring(startTagEndIndex, closeTagIndex);
-      const firstHtmlMatch = /<[a-z]/.exec(body);
+      const renderStart = this.findRenderStart(body);
 
-      if (firstHtmlMatch) {
-        const logic = body.substring(0, firstHtmlMatch.index);
+      if (renderStart !== -1) {
+        const logic = body.substring(0, renderStart);
         addMappedText(startTagEndIndex, logic);
 
-        generatedText += "return (<>";
-
-        const html = body.substring(firstHtmlMatch.index);
-        addMappedText(startTagEndIndex + firstHtmlMatch.index, html, htmlCapabilities);
-
-        generatedText += "</>);";
+        const render = body.substring(renderStart);
+        addMappedText(startTagEndIndex + renderStart, render, htmlCapabilities);
       } else {
         addMappedText(startTagEndIndex, body);
       }
@@ -272,6 +270,178 @@ export {};
     }
 
     return props.length > 0 ? `const { ${props.join(", ")} } = props;` : "";
+  }
+
+  private findRenderStart(body: string): number {
+    let index = 0;
+    let braceDepth = 0;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+
+    while (index < body.length) {
+      const char = body[index];
+      const next = body[index + 1];
+
+      if (char === '"' || char === "'" || char === "`") {
+        index = this.skipString(body, index);
+        continue;
+      }
+
+      if (char === "/" && next === "/") {
+        index = this.skipLineComment(body, index);
+        continue;
+      }
+
+      if (char === "/" && next === "*") {
+        index = this.skipBlockComment(body, index);
+        continue;
+      }
+
+      if (char === "{") braceDepth++;
+      else if (char === "}") braceDepth--;
+      else if (char === "(") parenDepth++;
+      else if (char === ")") parenDepth--;
+      else if (char === "[") bracketDepth++;
+      else if (char === "]") bracketDepth--;
+      else if (
+        char === "<" &&
+        braceDepth === 0 &&
+        parenDepth === 0 &&
+        bracketDepth === 0 &&
+        this.isOpeningMarkupStart(body, index)
+      ) {
+        if (this.isStyleMarkupStart(body, index)) {
+          const close = body.indexOf("</style>", index);
+          if (close !== -1) {
+            index = close + "</style>".length;
+            continue;
+          }
+        }
+
+        return index;
+      } else if (
+        braceDepth === 0 &&
+        parenDepth === 0 &&
+        bracketDepth === 0 &&
+        this.isRenderControlBlockStart(body, index)
+      ) {
+        return index;
+      }
+
+      index++;
+    }
+
+    return -1;
+  }
+
+  private isOpeningMarkupStart(source: string, index: number): boolean {
+    return source.startsWith("<>", index) || /^<[A-Za-z][A-Za-z0-9_.-]*/.test(source.slice(index));
+  }
+
+  private isStyleMarkupStart(source: string, index: number): boolean {
+    return /^<style\b/i.test(source.slice(index));
+  }
+
+  private isRenderControlBlockStart(source: string, index: number): boolean {
+    const lineStart = source.lastIndexOf("\n", index - 1) + 1;
+
+    if (source.slice(lineStart, index).trim().length > 0) {
+      return false;
+    }
+
+    const statementStart = this.skipWhitespace(source, index);
+    if (statementStart !== index) {
+      return false;
+    }
+
+    const brace = this.findJsBlockOpen(source, statementStart);
+    if (brace === -1) {
+      return false;
+    }
+
+    return /^(?:if|for|while|switch|try)\b/.test(source.slice(statementStart, brace).trim());
+  }
+
+  private findJsBlockOpen(source: string, start: number): number {
+    let index = start;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+
+    while (index < source.length) {
+      const char = source[index];
+      const next = source[index + 1];
+
+      if (char === '"' || char === "'" || char === "`") {
+        index = this.skipString(source, index);
+        continue;
+      }
+
+      if (char === "/" && next === "/") {
+        index = this.skipLineComment(source, index);
+        continue;
+      }
+
+      if (char === "/" && next === "*") {
+        index = this.skipBlockComment(source, index);
+        continue;
+      }
+
+      if (char === "\n") {
+        return -1;
+      }
+
+      if (char === "(") parenDepth++;
+      else if (char === ")") parenDepth--;
+      else if (char === "[") bracketDepth++;
+      else if (char === "]") bracketDepth--;
+      else if (char === "{" && parenDepth === 0 && bracketDepth === 0) {
+        return index;
+      }
+
+      index++;
+    }
+
+    return -1;
+  }
+
+  private skipWhitespace(source: string, start: number): number {
+    let index = start;
+
+    while (index < source.length && /\s/.test(source[index]!)) {
+      index++;
+    }
+
+    return index;
+  }
+
+  private skipString(source: string, start: number): number {
+    const quote = source[start];
+    let index = start + 1;
+
+    while (index < source.length) {
+      if (source[index] === "\\") {
+        index += 2;
+        continue;
+      }
+
+      if (source[index] === quote) {
+        return index + 1;
+      }
+
+      index++;
+    }
+
+    return index;
+  }
+
+  private skipLineComment(source: string, start: number): number {
+    const end = source.indexOf("\n", start + 2);
+    return end === -1 ? source.length : end + 1;
+  }
+
+  private skipBlockComment(source: string, start: number): number {
+    const end = source.indexOf("*/", start + 2);
+    return end === -1 ? source.length : end + 2;
   }
 }
 
