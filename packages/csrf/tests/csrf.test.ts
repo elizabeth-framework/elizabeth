@@ -16,7 +16,11 @@ describe("CSRF tokens", () => {
 
   test("rejects tampered tokens", () => {
     const token = generateCsrfToken(SECRET);
-    const tampered = token.replace(/.$/, (ch) => (ch === "A" ? "B" : "A"));
+    // Tamper by appending an extra signature char. Replacing a trailing
+    // base64url char isn't reliable: when the encoded byte length isn't a
+    // multiple of 3, the final char carries padding bits and some flips
+    // (e.g. "A" ↔ "B") decode to the same bytes.
+    const tampered = `${token}X`;
     expect(verifyCsrfToken(tampered, SECRET)).toBe(false);
   });
 
