@@ -45,13 +45,28 @@ Routes:
 
 ## Framework Comparison
 
-Runs Elizabeth, native Bun, Elysia, and Hono one at a time on the same port:
+Runs Elizabeth, native Bun, Elysia, Hono, and Fastify one at a time on the same port:
 
 ```sh
 BOMBARDIER="$(go env GOPATH)/bin/bombardier" bench/run-frameworks.sh
 ```
 
 The comparison uses the same route shapes as the Elizabeth-only benchmark.
+
+## Markdown Summary
+
+Both runners write a verbose log per case. To collapse them into a single Markdown comparison table (req/s, p50, p99 per framework × route), pipe the output through `bench/summarize.ts`:
+
+```sh
+BOMBARDIER="$(go env GOPATH)/bin/bombardier" bench/run-frameworks.sh | bun bench/summarize.ts > bench-results.md
+```
+
+You can also save the raw run first and re-parse it later:
+
+```sh
+BOMBARDIER="$(go env GOPATH)/bin/bombardier" bench/run-frameworks.sh > bench-raw.txt
+bun bench/summarize.ts bench-raw.txt
+```
 
 ## Setup
 
