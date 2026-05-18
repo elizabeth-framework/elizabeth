@@ -38,7 +38,13 @@ export async function runMiddleware(
     }
 
     index = nextIndex;
-    const current = middleware[nextIndex];
+    let current;
+    
+    if (middleware instanceof Promise) {
+      middleware = await middleware;
+    }
+    
+    current = middleware[nextIndex];
 
     if (!current) {
       return await handler();
