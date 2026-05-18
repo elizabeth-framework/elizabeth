@@ -282,6 +282,64 @@ async function writeClientModule(
   };`;
         })
         .join("\n");
+      const refDeclarations = component.refs
+        .map((ref) => `  const ${ref.name} = { current: null };`)
+        .join("\n");
+      const refUpdates = component.refs
+        .map((ref) => {
+          return `    ${ref.name}.current = root.querySelector(${JSON.stringify(`[data-elizabeth-ref="${ref.id}"]`)});`;
+        })
+        .join("\n");
+      const refCleanups = component.refs
+        .map((ref) => `    ${ref.name}.current = null;`)
+        .join("\n");
+      const contextRuntime =
+        component.clientContexts.length > 0
+          ? `  function clientContext(defaultValue) {
+    const stack = [];
+    return {
+      use() {
+        return stack.length > 0 ? stack[stack.length - 1] : defaultValue;
+      },
+      provide(value, render) {
+        stack.push(value);
+        try {
+          const result = render();
+          if (result && typeof result.then === "function") {
+            return result.finally(() => {
+              stack.pop();
+            });
+          }
+          stack.pop();
+          return result;
+        } catch (error) {
+          stack.pop();
+          throw error;
+        }
+      },
+    };
+  }`
+          : "";
+      const contextDeclarations = component.clientContexts
+        .map((context) => indent(context.source.endsWith(";") ? context.source : `${context.source};`, 2))
+        .join("\n");
+      const memoRuntime =
+        component.memos.length > 0
+          ? `  const __elizabethMemoCache = new Map();
+  const __elizabethDepsEqual = (left, right) => Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
+  const __elizabethMemo = (id, callback, deps) => {
+    if (!Array.isArray(deps)) {
+      return callback();
+    }
+    const cached = __elizabethMemoCache.get(id);
+    if (cached && __elizabethDepsEqual(cached.deps, deps)) {
+      return cached.value;
+    }
+    const value = callback();
+    __elizabethMemoCache.set(id, { deps: deps.slice(), value });
+    return value;
+  };`
+          : "";
       const readyCallbacks = component.ready.map((hook) => hook.callback).join(",\n    ");
       const clientFunctions = component.clientFunctions.map((fn) => indent(fn.source, 2)).join("\n");
       const staticTextUpdates = component.textBindings
@@ -336,9 +394,14 @@ async function writeClientModule(
     if (root.__elizabethCleanup === __elizabethCleanup) {
       root.__elizabethCleanup = undefined;
     }
+${refCleanups}
   };
   root.__elizabethCleanup = __elizabethCleanup;
 ${stateDeclarations}
+${refDeclarations}
+${contextRuntime}
+${contextDeclarations}
+${memoRuntime}
 ${clientFunctions}
   const escapeHtml = (value) => value === null || value === undefined || value === false
     ? ""
@@ -354,6 +417,10 @@ ${staticAttrUpdates}
 ${textUpdates}
 ${htmlUpdates}
 ${attrUpdates}
+    renderRefs();
+  };
+  const renderRefs = () => {
+${refUpdates}
   };
 ${listeners}
   renderStatic();
@@ -420,7 +487,12 @@ function emitClientHtmlUpdate(binding: ClientComponent["htmlBindings"][number]):
   return `    {
       const element = root.querySelector(${selector});
       if (element) {
-        element.innerHTML = ${binding.expression};${eventBlock}
+        Promise.resolve(${binding.expression}).then((html) => {
+          if (!element.isConnected) {
+            return;
+          }
+          element.innerHTML = html;${eventBlock}
+        });
       }
     }`;
 }

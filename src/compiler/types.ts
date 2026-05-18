@@ -9,15 +9,23 @@ export interface ClientComponent {
   name: string;
   exportName: string | null;
   clientFunctions: ClientFunction[];
+  clientContexts: ClientContextBinding[];
   events: ClientEvent[];
   states: ClientStateBinding[];
   ready: ClientReadyHook[];
+  memos: ClientMemoBinding[];
+  refs: ClientRefBinding[];
   textBindings: ClientTextBinding[];
   htmlBindings: ClientHtmlBinding[];
   attrBindings: ClientAttributeBinding[];
 }
 
 export interface ClientFunction {
+  name: string;
+  source: string;
+}
+
+export interface ClientContextBinding {
   name: string;
   source: string;
 }
@@ -36,6 +44,18 @@ export interface ClientStateBinding {
 
 export interface ClientReadyHook {
   callback: string;
+}
+
+export interface ClientMemoBinding {
+  id: number;
+  name: string;
+  callback: string;
+  deps?: string;
+}
+
+export interface ClientRefBinding {
+  id: number;
+  name: string;
 }
 
 export interface ClientTextBinding {

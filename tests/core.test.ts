@@ -403,9 +403,9 @@ import { clientState } from "elizabeth/client";
   expect(counter.events).toEqual([{ id: 0, eventName: "click", handler: "() => setCount(count + 1)" }]);
 });
 
-test("compileElizabeth recognizes onReady hooks from client metadata", () => {
+test("compileElizabeth recognizes clientReady hooks from client metadata", () => {
   const result = compileElizabeth(`
-import { clientState, onReady } from "elizabeth/client";
+import { clientReady, clientState } from "elizabeth/client";
 
 @client
 @public
@@ -417,7 +417,7 @@ import { clientState, onReady } from "elizabeth/client";
   };
   const ping = () => console.log("ping");
 
-  onReady(() => {
+  clientReady(() => {
     ping();
     return setup();
   });
@@ -433,6 +433,145 @@ import { clientState, onReady } from "elizabeth/client";
   expect(counter.clientFunctions.map((fn) => fn.name)).toEqual(["setup", "ping"]);
   expect(counter.textBindings).toEqual([{ id: 0, expression: "count", reactive: true }]);
   expect(counter.events).toEqual([{ id: 0, eventName: "click", handler: "() => setCount(count + 1)" }]);
+});
+
+test("compileElizabeth keeps onReady as a clientReady alias", () => {
+  const result = compileElizabeth(`
+import { onReady } from "elizabeth/client";
+
+@client
+@public
+<Panel>
+  onReady(() => {
+    console.log("ready");
+  });
+
+  <div>Ready</div>
+</Panel>
+`);
+
+  const panel = result.clientComponents[0]!;
+
+  expect(panel.ready).toEqual([{ callback: '() => {\n    console.log("ready");\n  }' }]);
+});
+
+test("compileElizabeth recognizes client memo bindings from client metadata", () => {
+  const result = compileElizabeth(`
+import { clientMemo, clientState } from "elizabeth/client";
+
+@client
+@public
+<Counter>
+  const [count, setCount] = clientState(1);
+  const doubled = clientMemo(() => count * 2, [count]);
+
+  <button onClick={() => setCount(count + 1)}>{doubled}</button>
+</Counter>
+`);
+
+  const counter = result.clientComponents[0]!;
+
+  expect(counter.memos).toEqual([{ id: 0, name: "doubled", callback: "() => count * 2", deps: "[count]" }]);
+  expect(counter.textBindings).toEqual([
+    { id: 0, expression: "__elizabethMemo(0, () => count * 2, [count])", reactive: true },
+  ]);
+  expect(counter.events).toEqual([{ id: 0, eventName: "click", handler: "() => setCount(count + 1)" }]);
+});
+
+test("compileElizabeth includes functions referenced by client memo callbacks", () => {
+  const result = compileElizabeth(`
+import { clientMemo, clientState } from "elizabeth/client";
+
+@client
+@public
+<Counter>
+  const [count, setCount] = clientState(1);
+  const format = () => "Count " + count;
+  const label = clientMemo(() => format(), [count]);
+
+  <button onClick={() => setCount(count + 1)}>{label}</button>
+</Counter>
+`);
+
+  const counter = result.clientComponents[0]!;
+
+  expect(counter.memos).toEqual([{ id: 0, name: "label", callback: "() => format()", deps: "[count]" }]);
+  expect(counter.clientFunctions.map((fn) => fn.name)).toEqual(["format"]);
+});
+
+test("compileElizabethFile emits client memo runtime", async () => {
+  const root = await tempProject("client-memo-runtime");
+  const sourcePath = join(root, "src/pages/index.liz");
+
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await Bun.write(
+      sourcePath,
+      `
+import { clientMemo, clientState } from "elizabeth/client";
+
+@client
+@public
+<Counter>
+  const [count, setCount] = clientState(1);
+  const doubled = clientMemo(() => count * 2, [count]);
+
+  <button onClick={() => setCount(count + 1)}>{doubled}</button>
+</Counter>
+`,
+    );
+
+    const result = await compileElizabethFile(sourcePath, {
+      root,
+      frameworkRoot: process.cwd(),
+      outDir: join(root, ".elizabeth"),
+    });
+    const clientCode = await Bun.file(result.clientComponents[0]!.clientOutputPath).text();
+
+    expect(clientCode).toContain("const __elizabethMemoCache = new Map();");
+    expect(clientCode).toContain("__elizabethMemo(0, () => count * 2, [count])");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("compileElizabeth recognizes client refs from client metadata", () => {
+  const result = compileElizabeth(`
+import { clientReady, clientRef } from "elizabeth/client";
+
+@client
+@public
+<Panel>
+  const button = clientRef<HTMLButtonElement>();
+
+  clientReady(() => {
+    button.current?.focus();
+  });
+
+  <button ref={button}>Focus me</button>
+</Panel>
+`);
+
+  const panel = result.clientComponents[0]!;
+
+  expect(panel.refs).toEqual([{ id: 0, name: "button" }]);
+  expect(panel.ready).toEqual([{ callback: "() => {\n    button.current?.focus();\n  }" }]);
+  expect(result.code).toContain('data-elizabeth-ref=\\"0\\"');
+  expect(result.code).not.toContain(" ref=");
+});
+
+test("compileElizabeth rejects ref bindings that do not use clientRef", () => {
+  expect(() =>
+    compileElizabeth(`
+@client
+@public
+<Panel>
+  const button = {};
+
+  <button ref={button}>Focus me</button>
+</Panel>
+`),
+  ).toThrow("ref must reference a variable created by clientRef().");
 });
 
 test("compileElizabeth marks state-dependent markup blocks as reactive html bindings", () => {
@@ -669,6 +808,219 @@ test("compileElizabeth supports render control blocks after style and logic", ()
   expect(result.code).toContain(")(label));");
   expect(result.code).toContain("else {");
   expect(result.code).toContain('__html += "Fallback";');
+});
+
+test("compileElizabeth supports custom render wrappers", () => {
+  const result = compileElizabeth(`
+function Card(title, render) {
+  return "<section><h2>" + title + "</h2>" + render() + "</section>";
+}
+
+@default
+<Page>
+  Card("Profile") {
+    <p>Ada Lovelace</p>
+  }
+</Page>
+`);
+
+  expect(result.code).toContain("export default async function Page");
+  expect(result.code).toContain('await Card("Profile", () => {');
+  expect(result.code).toContain('let __elizabethBlock = "";');
+  expect(result.code).toContain("return __elizabethBlock;");
+});
+
+test("compileElizabeth supports recursive render wrappers with multiple tags", () => {
+  const result = compileElizabeth(`
+function Layout(title, render) {
+  return "<main><h1>" + title + "</h1>" + render() + "</main>";
+}
+
+function Card(title, render) {
+  return "<section><h2>" + title + "</h2>" + render() + "</section>";
+}
+
+@default
+<Page>
+  const showTasks = true;
+
+  Layout("Dashboard") {
+    <p>Summary</p>
+
+    Card("Profile") {
+      <strong>Ada</strong>
+      <span>Admin</span>
+    }
+
+    if (showTasks) {
+      Card("Tasks") {
+        <ul>
+          <li>Write docs</li>
+        </ul>
+      }
+    }
+  }
+</Page>
+`);
+
+  expect(result.code).toContain('await Layout("Dashboard", async () => {');
+  expect(result.code).toContain('await Card("Profile", () => {');
+  expect(result.code).toContain('await Card("Tasks", () => {');
+  expect(result.code).toContain('__elizabethBlock += "<strong" + ">";');
+  expect(result.code).toContain('__elizabethBlock += "<span" + ">";');
+  expect(result.code).toContain("if (showTasks) {");
+});
+
+test("compileElizabeth rerenders stateful client render wrappers", () => {
+  const result = compileElizabeth(`
+import { clientState } from "elizabeth/client";
+
+function Card(title, render) {
+  return "<section><h2>" + title + "</h2>" + render() + "</section>";
+}
+
+@client
+@public
+<Panel>
+  const [count, setCount] = clientState(0);
+
+  Card("Counter " + count) {
+    <button onClick={() => setCount(count + 1)}>{count}</button>
+  }
+</Panel>
+`);
+
+  const panel = result.clientComponents[0]!;
+
+  expect(panel.textBindings).toEqual([]);
+  expect(panel.events).toEqual([]);
+  expect(panel.htmlBindings).toHaveLength(1);
+  expect(panel.htmlBindings[0].source).toContain('Card("Counter " + count)');
+  expect(panel.htmlBindings[0].expression).toContain('await Card("Counter " + count, () => {');
+  expect(panel.htmlBindings[0].reactive).toBe(true);
+  expect(panel.htmlBindings[0].events).toEqual([
+    { id: 0, eventName: "click", handler: "() => setCount(count + 1)" },
+  ]);
+});
+
+test("compileElizabeth supports clientContext with render wrappers", () => {
+  const result = compileElizabeth(`
+import { clientContext, clientState } from "elizabeth/client";
+
+const ThemeContext = clientContext("light");
+
+@private
+<Label>
+  const theme = ThemeContext.use();
+
+  <p>{theme}</p>
+</Label>
+
+@client
+@public
+<Panel>
+  const [theme, setTheme] = clientState("dark");
+
+  ThemeContext.provide(theme) {
+    <Label />
+    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>Toggle</button>
+  }
+</Panel>
+`);
+
+  const panel = result.clientComponents[0]!;
+
+  expect(panel.clientContexts).toEqual([
+    { name: "ThemeContext", source: 'const ThemeContext = clientContext("light");' },
+  ]);
+  expect(panel.htmlBindings).toHaveLength(1);
+  expect(panel.htmlBindings[0].source).toContain("ThemeContext.provide(theme)");
+  expect(panel.htmlBindings[0].expression).toContain("await ThemeContext.provide(theme, async () => {");
+  expect(panel.htmlBindings[0].expression).toContain("const theme = ThemeContext.use();");
+  expect(panel.htmlBindings[0].reactive).toBe(true);
+  expect(panel.htmlBindings[0].events).toEqual([
+    { id: 0, eventName: "click", handler: '() => setTheme(theme === "dark" ? "light" : "dark")' },
+  ]);
+});
+
+test("compileElizabeth keeps stable outer render wrappers outside client html bindings", () => {
+  const result = compileElizabeth(`
+import { clientState } from "elizabeth/client";
+
+function Layout(title, render) {
+  return "<main><h1>" + title + "</h1>" + render() + "</main>";
+}
+
+function Card(title, render) {
+  return "<section><h2>" + title + "</h2>" + render() + "</section>";
+}
+
+@client
+@public
+<Panel>
+  const [count, setCount] = clientState(0);
+
+  Layout("Dashboard") {
+    Card("Counter " + count) {
+      <button onClick={() => setCount(count + 1)}>{count}</button>
+    }
+  }
+</Panel>
+`);
+
+  const panel = result.clientComponents[0]!;
+
+  expect(panel.htmlBindings).toHaveLength(1);
+  expect(panel.htmlBindings[0].source).toContain('Card("Counter " + count)');
+  expect(panel.htmlBindings[0].source).not.toContain('Layout("Dashboard")');
+});
+
+test("compileElizabethFile emits clientContext runtime", async () => {
+  const root = await tempProject("client-context-runtime");
+  const sourcePath = join(root, "src/pages/index.liz");
+
+  try {
+    await mkdir(join(root, "src/pages"), { recursive: true });
+    await Bun.write(
+      sourcePath,
+      `
+import { clientContext, clientState } from "elizabeth/client";
+
+const ThemeContext = clientContext("light");
+
+@private
+<Label>
+  const theme = ThemeContext.use();
+
+  <p>{theme}</p>
+</Label>
+
+@client
+@public
+<Panel>
+  const [theme, setTheme] = clientState("dark");
+
+  ThemeContext.provide(theme) {
+    <Label />
+    <button onClick={() => setTheme("light")}>Light</button>
+  }
+</Panel>
+`,
+    );
+
+    const result = await compileElizabethFile(sourcePath, {
+      root,
+      frameworkRoot: process.cwd(),
+      outDir: join(root, ".elizabeth"),
+    });
+    const clientCode = await Bun.file(result.clientComponents[0]!.clientOutputPath).text();
+
+    expect(clientCode).toContain("function clientContext(defaultValue)");
+    expect(clientCode).toContain('const ThemeContext = clientContext("light");');
+    expect(clientCode).toContain("ThemeContext.provide(theme");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("compileElizabeth keeps later component siblings after native elements in client islands", () => {
