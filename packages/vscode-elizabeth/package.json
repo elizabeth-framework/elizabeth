@@ -3,6 +3,7 @@
   "displayName": "Elizabeth Language Extension",
   "description": "Language support for Elizabeth framework.",
   "publisher": "Shinapri",
+  "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/elizabeth-js/elizabeth.git"

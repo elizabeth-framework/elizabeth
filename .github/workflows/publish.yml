@@ -35,15 +35,8 @@ jobs:
       - name: Typecheck
         run: bun run check
 
-      # Publish root package (@lizorigin/elizabeth)
+      # Publish root package (@elizabeth-js/elizabeth)
       - name: Publish Core Framework
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Publish create-elizabeth-app
-      - name: Publish Create App Template
-        run: npm publish --access public
-        working-directory: ./packages/create-elizabeth-app
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
