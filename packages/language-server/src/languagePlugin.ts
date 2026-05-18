@@ -39,7 +39,16 @@ type ElizabethComponentContext = {
 };
 declare module "elizabeth/client" {
     export function clientState<T>(initialValue: T): [T, (value: T | ((current: T) => T)) => void];
+    export function clientReady(callback: () => void | (() => void)): void;
     export function onReady(callback: () => void | (() => void)): void;
+    export function clientMemo<T>(callback: () => T, deps?: readonly unknown[]): T;
+    export interface ClientContext<T> {
+        use(): T;
+        provide<R>(value: T, render: () => R): R;
+    }
+    export function clientContext<T>(defaultValue: T): ClientContext<T>;
+    export interface ClientRef<T extends Element = Element> { current: T | null; }
+    export function clientRef<T extends Element = Element>(): ClientRef<T>;
 }
 declare module "elizabeth/route" {
     export type RedirectResult = any;
@@ -308,7 +317,7 @@ export {};
         braceDepth === 0 &&
         parenDepth === 0 &&
         bracketDepth === 0 &&
-        this.isOpeningMarkupStart(body, index)
+        this.isTopLevelRenderMarkupStart(body, index)
       ) {
         if (this.isStyleMarkupStart(body, index)) {
           const close = body.indexOf("</style>", index);
@@ -336,6 +345,15 @@ export {};
 
   private isOpeningMarkupStart(source: string, index: number): boolean {
     return source.startsWith("<>", index) || /^<[A-Za-z][A-Za-z0-9_.-]*/.test(source.slice(index));
+  }
+
+  private isTopLevelRenderMarkupStart(source: string, index: number): boolean {
+    if (!this.isOpeningMarkupStart(source, index)) {
+      return false;
+    }
+
+    const lineStart = source.lastIndexOf("\n", index - 1) + 1;
+    return source.slice(lineStart, index).trim().length === 0;
   }
 
   private isStyleMarkupStart(source: string, index: number): boolean {

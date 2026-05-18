@@ -1,17 +1,26 @@
 import { parseSync } from "oxc-parser";
 import { ElizabethCompileError, syntaxError as makeSyntaxError } from "./errors.ts";
 import {
+  ELIZABETH_CLIENT_CONTEXT_HOOK_NAMES,
+  ELIZABETH_CLIENT_CONTEXT_MEMBER_NAME,
+  ELIZABETH_CLIENT_MEMO_HOOK_NAMES,
+  ELIZABETH_CLIENT_MEMO_MEMBER_NAME,
   ELIZABETH_CLIENT_READY_HOOK_NAMES,
   ELIZABETH_CLIENT_READY_MEMBER_NAME,
+  ELIZABETH_CLIENT_REF_HOOK_NAMES,
+  ELIZABETH_CLIENT_REF_MEMBER_NAME,
   ELIZABETH_CLIENT_STATE_HOOK_NAMES,
   ELIZABETH_CLIENT_STATE_MEMBER_NAME,
 } from "../runtime/client.ts";
 import type {
   ClientAttributeBinding,
+  ClientContextBinding,
   ClientEvent,
   ClientFunction,
   ClientHtmlBinding,
+  ClientMemoBinding,
   ClientReadyHook,
+  ClientRefBinding,
   ClientStateBinding,
   ClientTextBinding,
   CompileResult,
@@ -42,10 +51,14 @@ export function compileElizabeth(
   const components: ComponentBlock[] = [];
   const moduleParts: string[] = [];
   const moduleClientFunctions = findModuleClientFunctions(source, sourceName);
+  const moduleClientContexts = findModuleClientContexts(source, sourceName);
   const clientEvents = new Map<string, ClientEvent[]>();
   const clientFunctions = new Map<string, ClientFunction[]>();
+  const clientContexts = new Map<string, ClientContextBinding[]>();
   const clientStates = new Map<string, ClientStateBinding[]>();
   const clientReady = new Map<string, ClientReadyHook[]>();
+  const clientMemos = new Map<string, ClientMemoBinding[]>();
+  const clientRefs = new Map<string, ClientRefBinding[]>();
   const clientTextBindings = new Map<string, ClientTextBinding[]>();
   const clientHtmlBindings = new Map<string, ClientHtmlBinding[]>();
   const clientAttrBindings = new Map<string, ClientAttributeBinding[]>();
@@ -53,8 +66,12 @@ export function compileElizabeth(
     events: clientEvents,
     functions: clientFunctions,
     moduleFunctions: moduleClientFunctions,
+    contexts: clientContexts,
+    moduleContexts: moduleClientContexts,
     states: clientStates,
     ready: clientReady,
+    memos: clientMemos,
+    refs: clientRefs,
     textBindings: clientTextBindings,
     htmlBindings: clientHtmlBindings,
     attrBindings: clientAttrBindings,
@@ -112,9 +129,12 @@ export function compileElizabeth(
         name: component.name,
         exportName: exportNameFor(component),
         clientFunctions: clientFunctions.get(component.name) ?? [],
+        clientContexts: clientContexts.get(component.name) ?? [],
         events: clientEvents.get(component.name) ?? [],
         states: clientStates.get(component.name) ?? [],
         ready: clientReady.get(component.name) ?? [],
+        memos: clientMemos.get(component.name) ?? [],
+        refs: clientRefs.get(component.name) ?? [],
         textBindings: clientTextBindings.get(component.name) ?? [],
         htmlBindings: clientHtmlBindings.get(component.name) ?? [],
         attrBindings: clientAttrBindings.get(component.name) ?? [],
@@ -179,8 +199,12 @@ interface ClientMetadataMaps {
   events: Map<string, ClientEvent[]>;
   functions: Map<string, ClientFunction[]>;
   moduleFunctions: ClientFunction[];
+  contexts: Map<string, ClientContextBinding[]>;
+  moduleContexts: ClientContextBinding[];
   states: Map<string, ClientStateBinding[]>;
   ready: Map<string, ClientReadyHook[]>;
+  memos: Map<string, ClientMemoBinding[]>;
+  refs: Map<string, ClientRefBinding[]>;
   textBindings: Map<string, ClientTextBinding[]>;
   htmlBindings: Map<string, ClientHtmlBinding[]>;
   attrBindings: Map<string, ClientAttributeBinding[]>;
@@ -415,11 +439,18 @@ function emitComponent(
   const attrBindings: ClientAttributeBinding[] = [];
   const states = component.client ? findClientStates(render.logic) : [];
   const ready = component.client ? findClientReadyHooks(render.logic) : [];
+  const memos = component.client ? findClientMemos(render.logic) : [];
+  const refs = component.client ? findClientRefs(render.logic) : [];
+  const localContexts = component.client ? findClientContexts(render.logic) : [];
+  const contextCandidates = component.client
+    ? mergeClientContexts(clientMetadata.moduleContexts, localContexts)
+    : [];
   const functionCandidates = component.client
     ? mergeClientFunctions(clientMetadata.moduleFunctions, findClientFunctions(render.logic))
     : [];
+  const memoAliases = component.client ? createClientMemoAliases(memos) : new Map<string, string>();
   const derivedAliases = component.client
-    ? findClientDerivedAliases(render.logic, states, functionCandidates)
+    ? findClientDerivedAliases(render.logic, states, functionCandidates, memoAliases)
     : new Map<string, string>();
   let htmlStatements: string;
   try {
@@ -432,6 +463,7 @@ function emitComponent(
           textBindings,
           htmlBindings,
           attrBindings,
+          refs,
           states,
           functionCandidates,
           componentRegistry,
@@ -444,6 +476,22 @@ function emitComponent(
   clientMetadata.events.set(component.name, events);
   clientMetadata.states.set(component.name, states);
   clientMetadata.ready.set(component.name, ready);
+  clientMetadata.memos.set(component.name, memos);
+  clientMetadata.refs.set(component.name, refs);
+  clientMetadata.contexts.set(
+    component.name,
+    selectReferencedClientContexts(contextCandidates, [
+      markup,
+      ...events.map((event) => event.handler),
+      ...ready.map((hook) => hook.callback),
+      ...memos.flatMap((memo) => [memo.callback, memo.deps ?? ""]),
+      ...textBindings.map((binding) => binding.expression),
+      ...htmlBindings.map((binding) => binding.source),
+      ...htmlBindings.map((binding) => binding.expression),
+      ...htmlBindings.flatMap((binding) => binding.events.map((event) => event.handler)),
+      ...attrBindings.map((binding) => binding.expression),
+    ]),
+  );
   clientMetadata.textBindings.set(component.name, textBindings);
   clientMetadata.htmlBindings.set(component.name, htmlBindings);
   clientMetadata.attrBindings.set(component.name, attrBindings);
@@ -453,6 +501,7 @@ function emitComponent(
       ...events.map((event) => event.handler),
       ...states.map((state) => state.initialValue),
       ...ready.map((hook) => hook.callback),
+      ...memos.flatMap((memo) => [memo.callback, memo.deps ?? ""]),
       ...textBindings.map((binding) => binding.expression),
       ...htmlBindings.map((binding) => binding.source),
       ...htmlBindings.flatMap((binding) => binding.events.map((event) => event.handler)),
@@ -460,8 +509,9 @@ function emitComponent(
     ]),
   );
   const propLocals = emitPropLocals(component);
-  const logic = [propLocals, render.logic.trim()].filter(Boolean).join("\n");
-  const isAsync = containsAwait(logic) || containsAwait(markup) || containsComponentTag(markup);
+  const memoRuntime = memos.length > 0 ? "const __elizabethMemo = (_id, callback) => callback();" : "";
+  const logic = [propLocals, memoRuntime, render.logic.trim()].filter(Boolean).join("\n");
+  const isAsync = containsAwait(logic) || containsAwait(markup) || containsComponentTag(markup) || containsRenderWrapper(markup);
   const declaration = declarationFor(component, isAsync);
 
   return `${declaration} {
@@ -493,6 +543,7 @@ function emitClientHtmlStatements(
   textBindings: ClientTextBinding[],
   htmlBindings: ClientHtmlBinding[],
   attrBindings: ClientAttributeBinding[],
+  refs: ClientRefBinding[],
   states: ClientStateBinding[],
   functions: ClientFunction[],
   componentRegistry: Map<string, ComponentBlock>,
@@ -503,6 +554,7 @@ function emitClientHtmlStatements(
     textBindings,
     htmlBindings,
     attrBindings,
+    refBindings: refs,
     stateNames: new Set(states.map((state) => state.name)),
     functions,
     componentRegistry,
@@ -583,6 +635,7 @@ interface EmitHtmlOptions {
   textBindings?: ClientTextBinding[];
   htmlBindings?: ClientHtmlBinding[];
   attrBindings?: ClientAttributeBinding[];
+  refBindings?: ClientRefBinding[];
   stateNames?: Set<string>;
   functions?: ClientFunction[];
   componentRegistry?: Map<string, ComponentBlock>;
@@ -842,11 +895,16 @@ function emitHtmlBindingExpression(source: string, options: EmitHtmlOptions): st
     events: result.events,
   });
 
-  return `${JSON.stringify(`<span data-elizabeth-html="${id}" style="display: contents">`)} + ${result.expression} + ${JSON.stringify("</span>")}`;
+  const initialHtml = result.async ? `(await ${result.expression})` : result.expression;
+  return `${JSON.stringify(`<span data-elizabeth-html="${id}" style="display: contents">`)} + ${initialHtml} + ${JSON.stringify("</span>")}`;
 }
 
-function emitHtmlBlockExpression(source: string, options: EmitHtmlOptions): { expression: string; events: ClientEvent[] } {
+function emitHtmlBlockExpression(
+  source: string,
+  options: EmitHtmlOptions,
+): { expression: string; events: ClientEvent[]; async: boolean } {
   const blockEvents: ClientEvent[] = [];
+  const isAsync = containsAwait(source) || containsComponentTag(source) || containsRenderWrapper(source);
   const nestedOptions: EmitHtmlOptions = {
     ...options,
     events: blockEvents,
@@ -855,12 +913,12 @@ function emitHtmlBlockExpression(source: string, options: EmitHtmlOptions): { ex
     attrBindings: undefined,
   };
 
-  const expression = `(() => {
+  const expression = `(${isAsync ? "async " : ""}() => {
   let __elizabethHtml = "";
 ${indent(emitScriptBlockStatements(source, "__elizabethHtml", nestedOptions), 2)}
   return __elizabethHtml;
 })()`;
-  return { expression, events: blockEvents };
+  return { expression, events: blockEvents, async: isAsync };
 }
 
 function emitMarkupAsyncExpression(markup: string, options: EmitHtmlOptions): string {
@@ -901,14 +959,33 @@ function readJsBlockInMarkup(
 
   while (true) {
     const header = source.slice(cursor, brace).trimEnd();
-    validateScriptBlockHeader(header);
     const bodyEnd = findMatching(source, brace, "{", "}");
     const body = source.slice(brace + 1, bodyEnd);
-    pieces.push(`${header} {`);
-    pieces.push(
-      indent(emitMarkupStatements(body, target, withSourceOffset(options, (options.sourceOffset ?? 0) + brace + 1)), 2),
-    );
-    pieces.push("}");
+    const bodyOffset = (options.sourceOffset ?? 0) + brace + 1;
+
+    if (isRenderWrapperHeader(header)) {
+      const blockEnd = bodyEnd + 1;
+      const blockSource = source.slice(cursor, blockEnd);
+      if (
+        options.htmlBindings &&
+        expressionReferencesState(header, options.stateNames, options.functions, options.propAliases)
+      ) {
+        pieces.push(
+          `${target} += ${emitHtmlBindingExpression(blockSource, withSourceOffset(options, (options.sourceOffset ?? 0) + cursor))};`,
+        );
+        return {
+          code: pieces.join("\n"),
+          end: blockEnd,
+        };
+      }
+
+      pieces.push(emitRenderWrapperStatement(header, body, target, withSourceOffset(options, bodyOffset)));
+    } else {
+      validateScriptBlockHeader(header);
+      pieces.push(`${header} {`);
+      pieces.push(indent(emitMarkupStatements(body, target, withSourceOffset(options, bodyOffset)), 2));
+      pieces.push("}");
+    }
 
     const continuationStart = bodyEnd + 1;
     const nextToken = skipWhitespace(source, continuationStart);
@@ -928,6 +1005,84 @@ function readJsBlockInMarkup(
     cursor = nextToken;
     brace = continuationBrace;
   }
+}
+
+function emitRenderWrapperStatement(
+  header: string,
+  body: string,
+  target: string,
+  options: EmitHtmlOptions,
+): string {
+  const asyncCallback = containsAwait(body) || containsComponentTag(body) || containsRenderWrapper(body);
+  const call = appendRenderCallbackArgument(
+    header.trim(),
+    `${asyncCallback ? "async " : ""}() => {
+  let __elizabethBlock = "";
+${indent(emitMarkupStatements(body, "__elizabethBlock", options), 2)}
+  return __elizabethBlock;
+}`,
+  );
+
+  return `${target} += await ${call};`;
+}
+
+function appendRenderCallbackArgument(call: string, callback: string): string {
+  const end = call.length - 1;
+
+  if (call[end] !== ")") {
+    throw new MarkupSyntaxError("Render wrapper must be a function call.", 0);
+  }
+
+  const start = findCallOpenForClosing(call, end);
+  const args = call.slice(start + 1, end).trim();
+  const separator = args.length > 0 ? ", " : "";
+  return `${call.slice(0, end)}${separator}${callback})`;
+}
+
+function findCallOpenForClosing(call: string, closeIndex: number): number {
+  let index = 0;
+
+  while (index < closeIndex) {
+    const char = call[index];
+    const next = call[index + 1];
+
+    if (char === '"' || char === "'" || char === "`") {
+      index = skipString(call, index);
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = skipLineComment(call, index);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(call, index);
+      continue;
+    }
+
+    if (char === "(" && findMatching(call, index, "(", ")") === closeIndex) {
+      return index;
+    }
+
+    index++;
+  }
+
+  throw new Error("Missing opening parenthesis.");
+}
+
+function isRenderWrapperHeader(header: string): boolean {
+  const trimmed = header.trim();
+
+  if (isJsControlBlockHeader(trimmed) || isJsBlockContinuation(trimmed)) {
+    return false;
+  }
+
+  if (!trimmed.endsWith(")")) {
+    return false;
+  }
+
+  return isExpressionScript(trimmed);
 }
 
 function findJsBlockOpenInMarkup(source: string, start: number): number {
@@ -1144,6 +1299,10 @@ function readScriptStatementEnd(source: string, start: number): number {
 
 function isJsBlockContinuation(header: string): boolean {
   return /^(?:else\b|catch\b|finally\b|while\b)/.test(header);
+}
+
+function isJsControlBlockHeader(header: string): boolean {
+  return /^(?:if|for|while|switch|try|do|else|catch|finally|with)\b/.test(header);
 }
 
 function withSourceOffset(options: EmitHtmlOptions, sourceOffset: number): EmitHtmlOptions {
@@ -1608,8 +1767,55 @@ function findModuleClientFunctions(source: string, sourceName: string): ClientFu
   return mergeClientFunctions(functions);
 }
 
+function findModuleClientContexts(source: string, sourceName: string): ClientContextBinding[] {
+  const contexts: ClientContextBinding[] = [];
+  let index = 0;
+
+  while (index < source.length) {
+    index = skipWhitespace(source, index);
+
+    if (isElizabethComponentStart(source, index)) {
+      index = readComponent(source, index, sourceName).end;
+      continue;
+    }
+
+    if (index < source.length) {
+      const end = readTopLevelModuleChunkEnd(source, index);
+      contexts.push(...findClientContexts(source.slice(index, end)));
+      index = end;
+    }
+  }
+
+  return mergeClientContexts(contexts);
+}
+
 function findClientFunctions(source: string): ClientFunction[] {
   return mergeClientFunctions([...findFunctionDeclarations(source), ...findFunctionVariables(source)]);
+}
+
+function findClientContexts(source: string): ClientContextBinding[] {
+  const contexts: ClientContextBinding[] = [];
+  const callees = findClientContextCallees(source);
+  const pattern =
+    /\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?:<[^;\n=]+>)?\s*\(/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source)) !== null) {
+    const callee = match[2];
+
+    if (!isClientContextCallee(callee, callees)) {
+      continue;
+    }
+
+    const statementEnd = readClientFunctionStatementEnd(source, match.index);
+    contexts.push({
+      name: match[1],
+      source: normalizeClientFunctionSource(source.slice(match.index, statementEnd).trim()),
+    });
+    pattern.lastIndex = statementEnd;
+  }
+
+  return mergeClientContexts(contexts);
 }
 
 function mergeClientFunctions(...groups: ClientFunction[][]): ClientFunction[] {
@@ -1618,6 +1824,18 @@ function mergeClientFunctions(...groups: ClientFunction[][]): ClientFunction[] {
   for (const group of groups) {
     for (const fn of group) {
       merged.set(fn.name, fn);
+    }
+  }
+
+  return [...merged.values()];
+}
+
+function mergeClientContexts(...groups: ClientContextBinding[][]): ClientContextBinding[] {
+  const merged = new Map<string, ClientContextBinding>();
+
+  for (const group of groups) {
+    for (const context of group) {
+      merged.set(context.name, context);
     }
   }
 
@@ -1644,12 +1862,79 @@ function selectReferencedClientFunctions(candidates: ClientFunction[], roots: st
   return candidates.filter((fn) => selected.has(fn.name));
 }
 
+function selectReferencedClientContexts(candidates: ClientContextBinding[], roots: string[]): ClientContextBinding[] {
+  const names = new Set(candidates.map((context) => context.name));
+  const referenced = new Set<string>();
+
+  for (const root of roots) {
+    for (const identifier of findReferencedIdentifiersInExpressionSafely(root)) {
+      if (names.has(identifier)) {
+        referenced.add(identifier);
+      }
+    }
+  }
+
+  return candidates.filter((context) => referenced.has(context.name));
+}
+
 function findReferencedIdentifiersInExpression(expression: string): string[] {
   return findReferencedIdentifiers(`const __elizabethExpression = (${expression});`);
 }
 
+function findReferencedIdentifiersInExpressionSafely(expression: string): string[] {
+  try {
+    return findReferencedIdentifiersInExpression(expression);
+  } catch {
+    return findReferencedIdentifiersInModuleSafely(expression);
+  }
+}
+
+function findReferencedIdentifiersInModuleSafely(source: string): string[] {
+  try {
+    return findReferencedIdentifiersInModule(source);
+  } catch {
+    return findReferencedIdentifiersLexically(source);
+  }
+}
+
 function findReferencedIdentifiersInModule(source: string): string[] {
   return findReferencedIdentifiers(source);
+}
+
+function findReferencedIdentifiersLexically(source: string): string[] {
+  const identifiers = new Set<string>();
+  let index = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === '"' || char === "'" || char === "`") {
+      index = skipString(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+
+    const match = /^[A-Za-z_$][\w$]*/.exec(source.slice(index));
+    if (match) {
+      identifiers.add(match[0]);
+      index += match[0].length;
+      continue;
+    }
+
+    index++;
+  }
+
+  return [...identifiers];
 }
 
 function findReferencedIdentifiers(source: string): string[] {
@@ -1932,6 +2217,77 @@ function findClientReadyHooks(logic: string): ClientReadyHook[] {
   return hooks;
 }
 
+function findClientMemos(logic: string): ClientMemoBinding[] {
+  const memos: ClientMemoBinding[] = [];
+  const callees = findClientMemoCallees(logic);
+  const pattern =
+    /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?:<[^;\n=]+>)?\s*\(/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(logic)) !== null) {
+    const callee = match[2];
+
+    if (!isClientMemoCallee(callee, callees)) {
+      continue;
+    }
+
+    const argsStart = pattern.lastIndex;
+    const callEnd = findMatching(logic, argsStart - 1, "(", ")");
+    const args = splitTopLevelArguments(logic.slice(argsStart, callEnd));
+    const callback = args[0]?.trim() ?? "";
+
+    if (callback.length === 0) {
+      pattern.lastIndex = callEnd + 1;
+      continue;
+    }
+
+    memos.push({
+      id: memos.length,
+      name: match[1],
+      callback,
+      deps: args[1]?.trim(),
+    });
+
+    pattern.lastIndex = callEnd + 1;
+  }
+
+  return memos;
+}
+
+function createClientMemoAliases(memos: ClientMemoBinding[]): Map<string, string> {
+  const aliases = new Map<string, string>();
+
+  for (const memo of memos) {
+    const deps = memo.deps && memo.deps.length > 0 ? memo.deps : "undefined";
+    aliases.set(memo.name, `__elizabethMemo(${memo.id}, ${memo.callback}, ${deps})`);
+  }
+
+  return aliases;
+}
+
+function findClientRefs(logic: string): ClientRefBinding[] {
+  const refs: ClientRefBinding[] = [];
+  const callees = findClientRefCallees(logic);
+  const pattern =
+    /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?:<[^;\n=]+>)?\s*\(/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(logic)) !== null) {
+    const callee = match[2];
+
+    if (!isClientRefCallee(callee, callees)) {
+      continue;
+    }
+
+    refs.push({
+      id: refs.length,
+      name: match[1],
+    });
+  }
+
+  return refs;
+}
+
 function findClientStateCallees(logic: string): Set<string> {
   const callees = new Set(ELIZABETH_CLIENT_STATE_HOOK_NAMES);
   const aliasPattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;?/g;
@@ -1988,12 +2344,97 @@ function isClientReadyCallee(callee: string, aliases: Set<string>): boolean {
   return aliases.has(callee) || callee.endsWith(`.${ELIZABETH_CLIENT_READY_MEMBER_NAME}`);
 }
 
+function findClientMemoCallees(logic: string): Set<string> {
+  const callees = new Set(ELIZABETH_CLIENT_MEMO_HOOK_NAMES);
+  const aliasPattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;?/g;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    aliasPattern.lastIndex = 0;
+
+    let match: RegExpExecArray | null;
+    while ((match = aliasPattern.exec(logic)) !== null) {
+      const alias = match[1];
+      const target = match[2];
+
+      if (isClientMemoCallee(target, callees) && !callees.has(alias)) {
+        callees.add(alias);
+        changed = true;
+      }
+    }
+  }
+
+  return callees;
+}
+
+function isClientMemoCallee(callee: string, aliases: Set<string>): boolean {
+  return aliases.has(callee) || callee.endsWith(`.${ELIZABETH_CLIENT_MEMO_MEMBER_NAME}`);
+}
+
+function findClientContextCallees(logic: string): Set<string> {
+  const callees = new Set(ELIZABETH_CLIENT_CONTEXT_HOOK_NAMES);
+  const aliasPattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;?/g;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    aliasPattern.lastIndex = 0;
+
+    let match: RegExpExecArray | null;
+    while ((match = aliasPattern.exec(logic)) !== null) {
+      const alias = match[1];
+      const target = match[2];
+
+      if (isClientContextCallee(target, callees) && !callees.has(alias)) {
+        callees.add(alias);
+        changed = true;
+      }
+    }
+  }
+
+  return callees;
+}
+
+function isClientContextCallee(callee: string, aliases: Set<string>): boolean {
+  return aliases.has(callee) || callee.endsWith(`.${ELIZABETH_CLIENT_CONTEXT_MEMBER_NAME}`);
+}
+
+function findClientRefCallees(logic: string): Set<string> {
+  const callees = new Set(ELIZABETH_CLIENT_REF_HOOK_NAMES);
+  const aliasPattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;?/g;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    aliasPattern.lastIndex = 0;
+
+    let match: RegExpExecArray | null;
+    while ((match = aliasPattern.exec(logic)) !== null) {
+      const alias = match[1];
+      const target = match[2];
+
+      if (isClientRefCallee(target, callees) && !callees.has(alias)) {
+        callees.add(alias);
+        changed = true;
+      }
+    }
+  }
+
+  return callees;
+}
+
+function isClientRefCallee(callee: string, aliases: Set<string>): boolean {
+  return aliases.has(callee) || callee.endsWith(`.${ELIZABETH_CLIENT_REF_MEMBER_NAME}`);
+}
+
 function findClientDerivedAliases(
   logic: string,
   states: ClientStateBinding[],
   functions: ClientFunction[],
+  initialAliases: Map<string, string> = new Map(),
 ): Map<string, string> {
-  const aliases = new Map<string, string>();
+  const aliases = new Map(initialAliases);
   const stateNames = new Set(states.map((state) => state.name));
   const pattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/g;
   let changed = true;
@@ -2042,6 +2483,51 @@ function containsClientStateCall(expression: string): boolean {
   }
 
   return new RegExp(`\\.${escapeRegExp(ELIZABETH_CLIENT_STATE_MEMBER_NAME)}\\s*\\(`).test(expression);
+}
+
+function splitTopLevelArguments(source: string): string[] {
+  const args: string[] = [];
+  let start = 0;
+  let index = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === '"' || char === "'" || char === "`") {
+      index = skipString(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+
+    if (char === "(") parenDepth++;
+    else if (char === ")") parenDepth--;
+    else if (char === "[") bracketDepth++;
+    else if (char === "]") bracketDepth--;
+    else if (char === "{") braceDepth++;
+    else if (char === "}") braceDepth--;
+    else if (char === "," && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      args.push(source.slice(start, index));
+      start = index + 1;
+    }
+
+    index++;
+  }
+
+  args.push(source.slice(start));
+  return args;
 }
 
 function isTopLevelCodePosition(source: string, position: number): boolean {
@@ -2117,6 +2603,20 @@ function emitNativeTagExpression(tag: MarkupTag, options: EmitHtmlOptions = {}):
   const parts: string[] = [JSON.stringify(`<${tag.name}`)];
 
   for (const attribute of tag.attributes) {
+    if (attribute.name === "ref") {
+      if (options.refBindings && attribute.kind === "expression") {
+        const expression = applyExpressionAliases(resolveExpressionAlias(attribute.value ?? "", options), options);
+        const existing = options.refBindings.find((binding) => binding.name === expression);
+
+        if (!existing || !/^[A-Za-z_$][\w$]*$/.test(expression)) {
+          throw new MarkupSyntaxError("ref must reference a variable created by clientRef().", tag.start);
+        }
+
+        parts.push(JSON.stringify(` data-elizabeth-ref="${existing.id}"`));
+      }
+      continue;
+    }
+
     if (/^on[A-Z]/.test(attribute.name)) {
       if (options.events && attribute.kind === "expression") {
         const id = options.eventIdCounter ? options.eventIdCounter.value++ : options.events.length;
@@ -2983,7 +3483,7 @@ function findComponentBodySplit(body: string): { logic: string; markup: string; 
       braceDepth === 0 &&
       parenDepth === 0 &&
       bracketDepth === 0 &&
-      isOpeningMarkupStart(body, index)
+      isTopLevelRenderMarkupStart(body, index)
     ) {
       if (isStyleMarkupStart(body, index)) {
         const tag = readMarkupTag(body, index);
@@ -3046,6 +3546,15 @@ function isOpeningMarkupStart(source: string, index: number): boolean {
   return source.startsWith("<>", index) || /^<[A-Za-z][A-Za-z0-9_.-]*/.test(source.slice(index));
 }
 
+function isTopLevelRenderMarkupStart(source: string, index: number): boolean {
+  if (!isOpeningMarkupStart(source, index)) {
+    return false;
+  }
+
+  const lineStart = source.lastIndexOf("\n", index - 1) + 1;
+  return source.slice(lineStart, index).trim().length === 0;
+}
+
 function isStyleMarkupStart(source: string, index: number): boolean {
   return /^<style\b/i.test(source.slice(index));
 }
@@ -3068,7 +3577,7 @@ function isRenderControlBlockStart(source: string, index: number): boolean {
   }
 
   const header = source.slice(statementStart, brace).trim();
-  if (!/^(?:if|for|while|switch|try)\b/.test(header)) {
+  if (!/^(?:if|for|while|switch|try)\b/.test(header) && !isRenderWrapperHeader(header)) {
     return false;
   }
 
@@ -3298,6 +3807,41 @@ function containsComponentTag(source: string): boolean {
 
       index = tag.end;
       continue;
+    }
+
+    index++;
+  }
+
+  return false;
+}
+
+function containsRenderWrapper(source: string): boolean {
+  let index = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === '"' || char === "'" || char === "`") {
+      index = skipString(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+
+    const statementStart = skipWhitespace(source, index);
+    const brace = findJsBlockOpenInMarkup(source, statementStart);
+
+    if (brace !== -1 && isRenderWrapperHeader(source.slice(statementStart, brace))) {
+      return true;
     }
 
     index++;

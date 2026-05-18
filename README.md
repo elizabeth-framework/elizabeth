@@ -149,7 +149,7 @@ Scoped component `<style>` blocks emit inline in the body next to the markup the
 Use `@client` for browser-interactive components:
 
 ```liz
-import { clientState } from "elizabeth/client"
+import { clientState } from "elizabeth/client";
 
 @client
 @public
@@ -160,6 +160,142 @@ import { clientState } from "elizabeth/client"
 </Counter>
 ```
 
+Client helpers from `elizabeth/client` are compiler-aware and only run in the generated island runtime where needed.
+
+### Client State
+
+`clientState` returns the current value and a setter. Setting state rerenders reactive text, attributes, HTML blocks, and event bindings inside the island:
+
+```liz
+import { clientState } from "elizabeth/client";
+
+@client
+@public
+<TodoCounter>
+  const [count, setCount] = clientState(0);
+
+  <button onClick={() => setCount((current) => current + 1)}>
+    Added {count}
+  </button>
+</TodoCounter>
+```
+
+### Client Memo
+
+Use `clientMemo` for derived values that should only recompute when dependencies change:
+
+```liz
+import { clientMemo, clientState } from "elizabeth/client";
+
+@client
+@public
+<CartSummary>
+  const [price, setPrice] = clientState(20);
+  const [quantity, setQuantity] = clientState(2);
+  const total = clientMemo(() => price * quantity, [price, quantity]);
+
+  <p>Total: {total}</p>
+</CartSummary>
+```
+
+### Client Ready
+
+Use `clientReady` for browser-side setup after the island mounts. Return a cleanup function when needed. `onReady` remains available as a compatibility alias.
+
+```liz
+import { clientReady, clientRef } from "elizabeth/client";
+
+@client
+@public
+<SearchBox>
+  const input = clientRef<HTMLInputElement>();
+
+  clientReady(() => {
+    input.current?.focus();
+  });
+
+  <input ref={input} />
+</SearchBox>
+```
+
+### Client Context
+
+`clientContext` shares values across local child components in the same client island without passing props through every layer. Use `.provide(value) { ... }` with Elizabeth render-wrapper syntax, then read with `.use()`.
+
+```liz
+import { clientContext, clientState } from "elizabeth/client";
+
+const ThemeContext = clientContext("light");
+
+@private
+<ThemeLabel>
+  const theme = ThemeContext.use();
+
+  <p>Theme: {theme}</p>
+</ThemeLabel>
+
+@client
+@public
+<ThemePanel>
+  const [theme, setTheme] = clientState("dark");
+
+  ThemeContext.provide(theme) {
+    <ThemeLabel />
+    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+      Toggle
+    </button>
+  }
+</ThemePanel>
+```
+
+Context is scoped by the render wrapper. A provided value is available while that wrapped subtree renders, including async render blocks.
+
+## Render Wrappers
+
+Any function call in render position can wrap Elizabeth markup by accepting the rendered block as its final argument:
+
+```liz
+function Card(title, render) {
+  return `<section><h2>${title}</h2>${render()}</section>`;
+}
+
+@default
+<ProfilePage>
+  Card("Profile") {
+    <p>Ada Lovelace</p>
+    <p>Mathematician</p>
+  }
+</ProfilePage>
+```
+
+This is useful for scoped behavior such as auth gates, feature flags, cache boundaries, error/loading boundaries, forms, and client context:
+
+```liz
+Auth.required() {
+  <AdminPanel />
+}
+
+Feature.enabled("new-dashboard") {
+  <Dashboard />
+}
+
+ThemeContext.provide(theme) {
+  <Toolbar />
+}
+```
+
+Wrapper blocks can contain multiple tags, control flow, components, and nested wrappers. In client islands, Elizabeth rerenders the smallest wrapper boundary whose call header depends on state:
+
+```liz
+Layout("Dashboard") {
+  Card("Counter " + count) {
+    <button onClick={() => setCount(count + 1)}>{count}</button>
+  }
+}
+```
+
+Here only the `Card(...)` block rerenders when `count` changes; the stable `Layout(...)` wrapper stays mounted.
+
 ## Build
 
 ```bash
@@ -167,4 +303,4 @@ bun run build
 bun run start
 ```
 
-`bun run build` creates both static HTML for static routes and a production `dist/server.js`. 
+`bun run build` creates both static HTML for static routes and a production `dist/server.js`.
