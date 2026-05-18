@@ -23,7 +23,7 @@ import {
 import type { PageRouteManifest } from "../router/pages.ts";
 import { buildPageRoutes, matchPageRoute, matchSpecialPageRoute } from "../router/pages.ts";
 import { type RenderModuleCache, renderPageRoute } from "../router/render.ts";
-import { renderApiRoute, methodNotAllowedResponse, createRequestContext, resolveMiddleware } from "../runtime/server.ts";
+import { renderApiRoute, methodNotAllowedResponse, createRequestContext, resolveMiddleware, apiRouteBuildFailureResponse } from "../runtime/server.ts";
 import { renderDevError } from "./error.ts";
 import { createHmrRuntime } from "./hmr.ts";
 
