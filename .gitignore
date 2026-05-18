@@ -4,6 +4,7 @@
 packages/vscode-elizabeth/out
 **/*.vsix
 **/package-lock.json
+**/pnpm-lock.yaml
 dist/
 .elizabeth/
 .elizabeth-*/

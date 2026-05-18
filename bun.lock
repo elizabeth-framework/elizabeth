@@ -153,13 +153,6 @@
         "@types/bun": "latest",
       },
     },
-    "packages/redirect": {
-      "name": "@elizabeth-js/redirect",
-      "version": "0.0.1",
-      "devDependencies": {
-        "@types/bun": "latest",
-      },
-    },
     "packages/request": {
       "name": "@elizabeth-js/request",
       "version": "0.0.1",
@@ -312,8 +305,6 @@
     "@elizabeth-js/og": ["@elizabeth-js/og@workspace:packages/og"],
 
     "@elizabeth-js/rate-limit": ["@elizabeth-js/rate-limit@workspace:packages/rate-limit"],
-
-    "@elizabeth-js/redirect": ["@elizabeth-js/redirect@workspace:packages/redirect"],
 
     "@elizabeth-js/request": ["@elizabeth-js/request@workspace:packages/request"],
 

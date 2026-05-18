@@ -1,7 +1,7 @@
 {
   "name": "@elizabeth-js/html",
   "version": "0.0.1",
-  "description": "classNames, escapeHtml, safeHtml \u2014 small HTML helpers for .liz files.",
+  "description": "classNames, escapeHtml, safeHtml — small HTML helpers for .liz files.",
   "type": "module",
   "publishConfig": {
     "access": "public"
