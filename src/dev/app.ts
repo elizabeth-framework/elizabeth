@@ -23,6 +23,7 @@ import {
 import type { PageRouteManifest } from "../router/pages.ts";
 import { buildPageRoutes, matchPageRoute, matchSpecialPageRoute } from "../router/pages.ts";
 import { type RenderModuleCache, renderPageRoute } from "../router/render.ts";
+import { renderApiRoute, methodNotAllowedResponse, createRequestContext, resolveMiddleware, apiRouteBuildFailureResponse } from "../runtime/server.ts";
 import { renderDevError } from "./error.ts";
 import { createHmrRuntime } from "./hmr.ts";
 
@@ -212,11 +213,19 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     }
     if (apiMatch && apiMatch.route.methods.includes(method)) {
       const context = createRequestContext(request, pathname, apiMatch.params);
-      const middleware = await resolveMiddleware(config, apiMatch.route.middleware);
+      const middleware = await resolveMiddlewareWrapper(config, apiMatch.route.middleware);
 
       return devResult(
         await runMiddleware(middleware, context, () =>
-          renderApiRoute(apiMatch, method, request, apiModuleCache, context),
+          renderApiRoute(apiMatch, method, request, async (route) => {
+            const modulePath = route.outputPath!;
+            let pending = apiModuleCache?.get(modulePath);
+            if (!pending) {
+              pending = import(`${pathToFileURL(modulePath).href}?t=${Date.now()}`) as Promise<Record<string, unknown>>;
+              apiModuleCache?.set(modulePath, pending);
+            }
+            return pending;
+          }, context),
         ),
         "api",
       );
@@ -233,7 +242,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     }
 
     const context = createRequestContext(request, pathname, match.params);
-    const middleware = await resolveMiddleware(config, match.route.middleware);
+    const middleware = await resolveMiddlewareWrapper(config, match.route.middleware);
 
     return devResult(await runMiddleware(middleware, context, async () => {
       let result: Awaited<ReturnType<typeof renderPageRoute>>;
@@ -300,7 +309,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     };
 
     if (context && config) {
-      return await runMiddleware(await resolveMiddleware(config, match.route.middleware), context, render);
+      return await runMiddleware(await resolveMiddlewareWrapper(config, match.route.middleware), context, render);
     }
 
     return await render();
@@ -348,7 +357,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     };
 
     if (context && config) {
-      return await runMiddleware(await resolveMiddleware(config, match.route.middleware), context, render);
+      return await runMiddleware(await resolveMiddlewareWrapper(config, match.route.middleware), context, render);
     }
 
     return await render();
@@ -387,60 +396,17 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
     };
 
     if (context && config) {
-      return await runMiddleware(await resolveMiddleware(config, match.route.middleware), context, render);
+      return await runMiddleware(await resolveMiddlewareWrapper(config, match.route.middleware), context, render);
     }
 
     return await render();
   }
 
-  function createRequestContext(
-    request: Request,
-    pathname: string,
-    params: Record<string, string>,
-    error?: unknown,
-  ): ElizabethRequestContext {
-    return {
-      request,
-      pathname,
-      params,
-      locals: {},
-      error,
-      get url() {
-        return new URL(request.url);
-      },
-    };
-  }
-
-  async function resolveMiddleware(
+  async function resolveMiddlewareWrapper(
     config: ElizabethConfig,
     references: MiddlewareReference[],
   ): Promise<ElizabethMiddleware[]> {
-    const globalReferences: MiddlewareReference[] = Array.from(
-      { length: config.globalMiddlewareCount },
-      (_value, index) => ({ kind: "config", index }),
-    );
-    const middleware: ElizabethMiddleware[] = [];
-
-    for (const reference of [...globalReferences, ...references]) {
-      if (reference.kind === "config") {
-        const entry = config.middleware[reference.index];
-        if (entry) {
-          middleware.push(entry);
-        }
-        continue;
-      }
-
-      const module = await importMiddlewareModule(reference.outputPath);
-      const entry = module.default ?? module.middleware;
-
-      if (typeof entry !== "function") {
-        throw new Error(`Middleware module must export a default function or named middleware: ${reference.sourcePath}`);
-      }
-
-      middleware.push(entry as ElizabethMiddleware);
-    }
-
-    return middleware;
+    return resolveMiddleware(references, config.globalMiddlewareCount, (index) => config.middleware[index], importMiddlewareModule);
   }
 
   async function importMiddlewareModule(path: string): Promise<Record<string, unknown>> {
@@ -720,80 +686,7 @@ export function createElizabethDevHandler(options: ElizabethDevOptions): Elizabe
   }
 }
 
-async function renderApiRoute(
-  match: { route: ApiRoute; params: Record<string, string> },
-  method: string,
-  request: Request,
-  moduleCache?: Map<string, Promise<Record<string, unknown>>>,
-  context?: ElizabethRequestContext,
-): Promise<Response> {
-  if (match.route.error) {
-    return apiRouteBuildFailureResponse(match.route);
-  }
 
-  const modulePath = match.route.outputPath!;
-  let pending = moduleCache?.get(modulePath);
-
-  if (!pending) {
-    pending = import(`${pathToFileURL(modulePath).href}?t=${Date.now()}`) as Promise<Record<string, unknown>>;
-    moduleCache?.set(modulePath, pending);
-  }
-
-  const module = await pending;
-  const handler = module[method];
-
-  if (typeof handler !== "function") {
-    return methodNotAllowedResponse(match.route.methods);
-  }
-
-  const result = await handler(
-    context ?? {
-      request,
-      pathname: new URL(request.url).pathname,
-      params: match.params,
-      locals: {},
-      get url() {
-        return new URL(request.url);
-      },
-    },
-  );
-
-  if (result instanceof Response) {
-    return result;
-  }
-
-  if (isRedirectResult(result)) {
-    return redirectResponse(result.location, result.status);
-  }
-
-  if (isNotFoundResult(result)) {
-    return new Response("Not found", {
-      status: 404,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-      },
-    });
-  }
-
-  if (typeof result === "string") {
-    return new Response(result, {
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-      },
-    });
-  }
-
-  return Response.json(result);
-}
-
-function apiRouteBuildFailureResponse(route: ApiRoute): Response {
-  return new Response(`API route failed to build: ${route.path}\n${route.error ?? "Unknown error"}`, {
-    status: 500,
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
-    },
-  });
-}
 
 function logDevRequest(entry: {
   method: string;
@@ -865,15 +758,7 @@ function color(value: string, code: string): string {
   return `${code}${value}\x1b[0m`;
 }
 
-function methodNotAllowedResponse(methods: string[]): Response {
-  return new Response("Method Not Allowed", {
-    status: 405,
-    headers: {
-      allow: methods.join(", "),
-      "content-type": "text/plain; charset=utf-8",
-    },
-  });
-}
+
 
 function assertNoRouteConflicts(
   pageRoutes: Array<{ path: string; methods: string[]; sourcePath: string }>,

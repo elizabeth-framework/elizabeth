@@ -20,7 +20,8 @@
   "exports": {
     ".": "./src/elizabeth.ts",
     "./client": "./src/client.ts",
-    "./route": "./src/route.ts"
+    "./route": "./src/route.ts",
+    "./server": "./src/runtime/server.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",
