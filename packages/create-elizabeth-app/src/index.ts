@@ -227,8 +227,8 @@ function printHelp(): void {
   console.log(`create-elizabeth-app
 
 Usage:
-  bun create @elizabeth-js/elizabeth-app my-app
-  bunx @elizabeth-js/create-elizabeth-app my-app
+  bun create elizabeth-app my-app
+  bunx create-elizabeth-app my-app
 
 Options:
   --template <name>        Project template. One of: ${AVAILABLE_TEMPLATES.join(", ")} (default: default).
